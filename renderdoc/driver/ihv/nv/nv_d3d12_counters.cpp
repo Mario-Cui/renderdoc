@@ -128,8 +128,10 @@ struct NVD3D12Counters::Impl
 
     nv::perf::MetricsEvaluator metricsEvaluator(pMetricsEvaluator, std::move(scratchBuffer));
 
+    size_t deviceIndex = nv::perf::D3D12GetNvperfDeviceIndex(device.GetReal());
+
     CounterEnumerator = new NVCounterEnumerator;
-    if(!CounterEnumerator->Init(std::move(metricsEvaluator)))
+    if(!CounterEnumerator->Init(std::move(metricsEvaluator), deviceIdentifiers, deviceIndex))
     {
       Impl::LogDebugMessage("NVD3D12Counters::Impl::TryInitializePerfSDK",
                             "NvPerf could not initialize metrics evaluator", device);
@@ -320,8 +322,8 @@ rdcarray<CounterResult> NVD3D12Counters::FetchCounters(const rdcarray<GPUCounter
 
   nv::perf::profiler::SessionOptions sessionOptions = {};
   sessionOptions.maxNumRanges = maxNumRanges;
-  sessionOptions.avgRangeNameLength = 16;
-  sessionOptions.numTraceBuffers = 1;
+  sessionOptions.avgRangeNameLength = 128;
+  sessionOptions.numTraceBuffers = 5;
 
   nv::perf::profiler::RangeProfilerD3D12 rangeProfiler;
 
@@ -415,7 +417,7 @@ rdcarray<CounterResult> NVD3D12Counters::FetchCounters(const rdcarray<GPUCounter
         break;
       }
 
-      if(decodeResult.allPassesDecoded)
+      if(decodeResult.allStatisticalSamplesCollected)
       {
         counterDataImage = std::move(decodeResult.counterDataImage);
         break;    // Success!

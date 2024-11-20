@@ -2,7 +2,7 @@
 #define NVPERF_TARGET_H
 
 /*
- * Copyright 2014-2022  NVIDIA Corporation.  All rights reserved.
+ * Copyright 2014-2024 NVIDIA Corporation.  All rights reserved.
  *
  * NOTICE TO USER:
  *
@@ -105,7 +105,8 @@ extern "C" {
     {
         NVPW_CONF_COMPUTE_SUPPORT_LEVEL_UNKNOWN = 0,
         NVPW_CONF_COMPUTE_SUPPORT_LEVEL_UNSUPPORTED,
-        NVPW_CONF_COMPUTE_SUPPORT_LEVEL_SUPPORTED_NON_CONF_COMPUTE_CONFIGURATION
+        NVPW_CONF_COMPUTE_SUPPORT_LEVEL_SUPPORTED_NON_CONF_COMPUTE_CONFIGURATION,
+        NVPW_CONF_COMPUTE_SUPPORT_LEVEL_SUPPORTED_CONF_COMPUTE_DEVTOOLS_MODE
     } NVPW_ConfidentialComputeSupportLevel;
 #endif //NVPW_CONF_COMPUTE_SUPPORT_LEVEL_DEFINED
 
@@ -296,6 +297,10 @@ extern "C" {
 #define NVPW_API_SET_METRICSCONTEXT            0x7c8579f6f2144beaULL
 
 #define NVPW_API_SET_METRICSEVALUATOR          0x0368a8768d811af9ULL
+
+#define NVPW_API_SET_METRICS_AD10X_COMP        0xbe57278e12cb5288ULL
+
+#define NVPW_API_SET_METRICS_AD10X_GRFX        0x5cbf0774f81bf491ULL
 
 #define NVPW_API_SET_METRICS_GA100_COMP        0x16b7d8c20d8b4915ULL
 
@@ -531,6 +536,26 @@ extern "C" {
 #define NVPW_PeriodicSampler_CounterData_GetTriggerCount_Params_STRUCT_SIZE NVPA_STRUCT_SIZE(NVPW_PeriodicSampler_CounterData_GetTriggerCount_Params, triggerCount)
 
     NVPA_Status NVPW_PeriodicSampler_CounterData_GetTriggerCount(NVPW_PeriodicSampler_CounterData_GetTriggerCount_Params* pParams);
+
+    typedef struct NVPW_PeriodicSampler_CounterData_IsDataComplete_Params
+    {
+        /// [in]
+        size_t structSize;
+        /// [in] assign to NULL
+        void* pPriv;
+        /// [in]
+        const uint8_t* pCounterDataImage;
+        /// [in]
+        size_t counterDataImageSize;
+        /// [in]
+        size_t rangeIndex;
+        /// [out]
+        NVPA_Bool isComplete;
+    } NVPW_PeriodicSampler_CounterData_IsDataComplete_Params;
+#define NVPW_PeriodicSampler_CounterData_IsDataComplete_Params_STRUCT_SIZE NVPA_STRUCT_SIZE(NVPW_PeriodicSampler_CounterData_IsDataComplete_Params, isComplete)
+
+    /// Checks whether a given sample's data is complete. See also 'NVPW_PeriodicSampler_CounterData_GetInfo'
+    NVPA_Status NVPW_PeriodicSampler_CounterData_IsDataComplete(NVPW_PeriodicSampler_CounterData_IsDataComplete_Params* pParams);
 
 
     typedef struct NVPW_TimestampReport

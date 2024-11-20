@@ -2,7 +2,7 @@
 #define NVPERF_D3D11_TARGET_H
 
 /*
- * Copyright 2014-2022  NVIDIA Corporation.  All rights reserved.
+ * Copyright 2014-2024 NVIDIA Corporation.  All rights reserved.
  *
  * NOTICE TO USER:
  *

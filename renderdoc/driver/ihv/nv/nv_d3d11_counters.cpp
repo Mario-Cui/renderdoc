@@ -124,9 +124,9 @@ struct NVD3D11Counters::Impl
     }
 
     nv::perf::MetricsEvaluator metricsEvaluator(pMetricsEvaluator, std::move(scratchBuffer));
-
+    size_t deviceIndex = nv::perf::D3D11GetNvperfDeviceIndex(device->GetReal());
     CounterEnumerator = new NVCounterEnumerator;
-    if(!CounterEnumerator->Init(std::move(metricsEvaluator)))
+    if(!CounterEnumerator->Init(std::move(metricsEvaluator), deviceIdentifiers, deviceIndex))
     {
       Impl::LogDebugMessage("NVD3D11Counters::Impl::TryInitializePerfSDK",
                             "NvPerf could not initialize metrics evaluator", device);
@@ -271,8 +271,8 @@ rdcarray<CounterResult> NVD3D11Counters::FetchCounters(const rdcarray<GPUCounter
 
   nv::perf::profiler::SessionOptions sessionOptions = {};
   sessionOptions.maxNumRanges = maxNumRanges;
-  sessionOptions.avgRangeNameLength = 16;
-  sessionOptions.numTraceBuffers = 2;
+  sessionOptions.avgRangeNameLength = 128;
+  sessionOptions.numTraceBuffers = 5;
 
   nv::perf::profiler::RangeProfilerD3D11 rangeProfiler;
 
@@ -342,7 +342,7 @@ rdcarray<CounterResult> NVD3D11Counters::FetchCounters(const rdcarray<GPUCounter
       break;    // Failure
     }
 
-    if(decodeResult.allPassesDecoded)
+    if(decodeResult.allStatisticalSamplesCollected)
     {
       counterDataImage = std::move(decodeResult.counterDataImage);
       break;    // Success!
@@ -351,8 +351,8 @@ rdcarray<CounterResult> NVD3D11Counters::FetchCounters(const rdcarray<GPUCounter
     if(replayPass >= maxNumReplayPasses - 1)
     {
       // FIXME: maxNumReplayPasses does not appear to be calculated correctly for d3d11!
-      // RDCERR("NvPerf exceeded the maximum expected number of replay passes");
-      // break;    // Failure
+      // RDCERR("NvPerf exceeded the maximum expected number of replay passes, %d",
+      // maxNumReplayPasses); break;    // Failure
     }
   }
 

@@ -128,9 +128,12 @@ struct NVVulkanCounters::Impl
     }
 
     nv::perf::MetricsEvaluator metricsEvaluator(pMetricsEvaluator, std::move(scratchBuffer));
-
+    size_t deviceIndex = nv::perf::VulkanGetNvperfDeviceIndex(
+        Unwrap(driver->GetInstance()), Unwrap(driver->GetPhysDev()), Unwrap(driver->GetDev()),
+        ObjDisp(driver->GetInstance())->GetInstanceProcAddr,
+        ObjDisp(driver->GetDev())->GetDeviceProcAddr);
     CounterEnumerator = new NVCounterEnumerator;
-    if(!CounterEnumerator->Init(std::move(metricsEvaluator)))
+    if(!CounterEnumerator->Init(std::move(metricsEvaluator), deviceIdentifiers, deviceIndex))
     {
       Impl::LogDebugMessage("NVVulkanCounters::Impl::TryInitializePerfSDK",
                             "NvPerf could not initialize metrics evaluator", driver);
@@ -310,8 +313,8 @@ rdcarray<CounterResult> NVVulkanCounters::FetchCounters(const rdcarray<GPUCounte
 
   nv::perf::profiler::SessionOptions sessionOptions = {};
   sessionOptions.maxNumRanges = maxNumRanges;
-  sessionOptions.avgRangeNameLength = 16;
-  sessionOptions.numTraceBuffers = 1;
+  sessionOptions.avgRangeNameLength = 128;
+  sessionOptions.numTraceBuffers = 5;
 
   nv::perf::profiler::RangeProfilerVulkan rangeProfiler;
 
@@ -394,7 +397,7 @@ rdcarray<CounterResult> NVVulkanCounters::FetchCounters(const rdcarray<GPUCounte
         break;
       }
 
-      if(decodeResult.allPassesDecoded)
+      if(decodeResult.allStatisticalSamplesCollected)
       {
         counterDataImage = std::move(decodeResult.counterDataImage);
         break;    // success!
@@ -402,9 +405,9 @@ rdcarray<CounterResult> NVVulkanCounters::FetchCounters(const rdcarray<GPUCounte
 
       if(replayPass >= maxNumReplayPasses - 1)
       {
-        Impl::LogDebugMessage("NVVulkanCounters::FetchCounters",
-                              "NvPerf exceeded the maximum expected number of replay passes", driver);
-        break;    // Failure
+        // Impl::LogDebugMessage("NVVulkanCounters::FetchCounters",
+        //                       "NvPerf exceeded the maximum expected number of replay passes", driver);
+        // break;    // Failure
       }
     }
 

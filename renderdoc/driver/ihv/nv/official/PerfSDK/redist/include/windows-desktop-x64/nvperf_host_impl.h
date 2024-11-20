@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2022  NVIDIA Corporation.  All rights reserved.
+ * Copyright 2014-2024 NVIDIA Corporation.  All rights reserved.
  *
  * NOTICE TO USER:
  *
@@ -93,6 +93,8 @@ typedef NVPA_Status (*NVPW_RawMetricsConfig_GetConfigImage_Fn)(NVPW_RawMetricsCo
 typedef NVPA_Status (*NVPW_RawMetricsConfig_GetNumPasses_V2_Fn)(NVPW_RawMetricsConfig_GetNumPasses_V2_Params* pParams);
 typedef NVPA_Status (*NVPW_PeriodicSampler_Config_GetSocEstimatedSampleSize_Fn)(NVPW_PeriodicSampler_Config_GetSocEstimatedSampleSize_Params* pParams);
 typedef NVPA_Status (*NVPW_PeriodicSampler_Config_GetGpuEstimatedSampleSize_Fn)(NVPW_PeriodicSampler_Config_GetGpuEstimatedSampleSize_Params* pParams);
+typedef NVPA_Status (*NVPW_Config_GetRawCounterInfo_Fn)(NVPW_Config_GetRawCounterInfo_Params* pParams);
+typedef NVPA_Status (*NVPW_Config_GetRawCounters_Fn)(NVPW_Config_GetRawCounters_Params* pParams);
 typedef NVPA_Status (*NVPW_CounterDataBuilder_Create_Fn)(NVPW_CounterDataBuilder_Create_Params* pParams);
 typedef NVPA_Status (*NVPW_CounterDataBuilder_Destroy_Fn)(NVPW_CounterDataBuilder_Destroy_Params* pParams);
 typedef NVPA_Status (*NVPW_CounterDataBuilder_AddMetrics_Fn)(NVPW_CounterDataBuilder_AddMetrics_Params* pParams);
@@ -130,6 +132,7 @@ typedef NVPA_Status (*NVPW_PeriodicSampler_CounterData_GetSampleTime_Fn)(NVPW_Pe
 typedef NVPA_Status (*NVPW_PeriodicSampler_CounterData_TrimInPlace_Fn)(NVPW_PeriodicSampler_CounterData_TrimInPlace_Params* pParams);
 typedef NVPA_Status (*NVPW_PeriodicSampler_CounterData_GetInfo_Fn)(NVPW_PeriodicSampler_CounterData_GetInfo_Params* pParams);
 typedef NVPA_Status (*NVPW_PeriodicSampler_CounterData_GetTriggerCount_Fn)(NVPW_PeriodicSampler_CounterData_GetTriggerCount_Params* pParams);
+typedef NVPA_Status (*NVPW_PeriodicSampler_CounterData_IsDataComplete_Fn)(NVPW_PeriodicSampler_CounterData_IsDataComplete_Params* pParams);
 typedef NVPA_Status (*NVPW_D3D12_RawMetricsConfig_Create_Fn)(NVPW_D3D12_RawMetricsConfig_Create_Params* pParams);
 typedef NVPA_Status (*NVPW_D3D12_MetricsEvaluator_CalculateScratchBufferSize_Fn)(NVPW_D3D12_MetricsEvaluator_CalculateScratchBufferSize_Params* pParams);
 typedef NVPA_Status (*NVPW_D3D12_MetricsEvaluator_Initialize_Fn)(NVPW_D3D12_MetricsEvaluator_Initialize_Params* pParams);
@@ -205,6 +208,11 @@ typedef NVPA_Status (*NVPW_GPU_PeriodicSampler_GetRecordBufferStatus_Fn)(NVPW_GP
 typedef NVPA_Status (*NVPW_GPU_PeriodicSampler_DecodeCounters_Fn)(NVPW_GPU_PeriodicSampler_DecodeCounters_Params* pParams);
 typedef NVPA_Status (*NVPW_GPU_PeriodicSampler_DecodeCounters_V2_Fn)(NVPW_GPU_PeriodicSampler_DecodeCounters_V2_Params* pParams);
 typedef NVPA_Status (*NVPW_GPU_PeriodicSampler_IsRecordBufferKeepLatestModeSupported_Fn)(NVPW_GPU_PeriodicSampler_IsRecordBufferKeepLatestModeSupported_Params* pParams);
+typedef NVPA_Status (*NVPW_GPU_PeriodicSampler_GetRecordBufferStatus_V2_Fn)(NVPW_GPU_PeriodicSampler_GetRecordBufferStatus_V2_Params* pParams);
+typedef NVPA_Status (*NVPW_GPU_PeriodicSampler_GetGpuTimestamp_Fn)(NVPW_GPU_PeriodicSampler_GetGpuTimestamp_Params* pParams);
+typedef NVPA_Status (*NVPW_GPU_PeriodicSampler_AcknowledgeRecordBuffer_Fn)(NVPW_GPU_PeriodicSampler_AcknowledgeRecordBuffer_Params* pParams);
+typedef NVPA_Status (*NVPW_GPU_PeriodicSampler_SetRecordBufferReadOffset_Fn)(NVPW_GPU_PeriodicSampler_SetRecordBufferReadOffset_Params* pParams);
+typedef NVPA_Status (*NVPW_GPU_PeriodicSampler_DecodeCounters_V3_Fn)(NVPW_GPU_PeriodicSampler_DecodeCounters_V3_Params* pParams);
 typedef NVPA_Status (*NVPW_VK_RawMetricsConfig_Create_Fn)(NVPW_VK_RawMetricsConfig_Create_Params* pParams);
 typedef NVPA_Status (*NVPW_VK_MetricsEvaluator_CalculateScratchBufferSize_Fn)(NVPW_VK_MetricsEvaluator_CalculateScratchBufferSize_Params* pParams);
 typedef NVPA_Status (*NVPW_VK_MetricsEvaluator_Initialize_Fn)(NVPW_VK_MetricsEvaluator_Initialize_Params* pParams);
@@ -261,7 +269,7 @@ typedef NVPA_Status (*NVPW_OpenGL_Profiler_GraphicsContext_DecodeCounters_Fn)(NV
 typedef NVPA_Status (*NVPW_OpenGL_Profiler_GraphicsContext_GetCounterAvailability_Fn)(NVPW_OpenGL_Profiler_GraphicsContext_GetCounterAvailability_Params* pParams);
 
 // Default implementations
-static NVPA_Status g_defaultStatus = NVPA_STATUS_NOT_LOADED;
+static NVPA_Status g_defaultStatus = NVPA_STATUS_NOT_INITIALIZED;
 
 static NVPA_GenericFn NVPA_GetProcAddress_Default(const char* pFunctionName)
 {
@@ -383,6 +391,16 @@ static NVPA_Status NVPW_PeriodicSampler_Config_GetSocEstimatedSampleSize_Default
     return g_defaultStatus;
 }
 static NVPA_Status NVPW_PeriodicSampler_Config_GetGpuEstimatedSampleSize_Default(NVPW_PeriodicSampler_Config_GetGpuEstimatedSampleSize_Params* pParams)
+{
+    (void)pParams;
+    return g_defaultStatus;
+}
+static NVPA_Status NVPW_Config_GetRawCounterInfo_Default(NVPW_Config_GetRawCounterInfo_Params* pParams)
+{
+    (void)pParams;
+    return g_defaultStatus;
+}
+static NVPA_Status NVPW_Config_GetRawCounters_Default(NVPW_Config_GetRawCounters_Params* pParams)
 {
     (void)pParams;
     return g_defaultStatus;
@@ -564,6 +582,11 @@ static NVPA_Status NVPW_PeriodicSampler_CounterData_GetInfo_Default(NVPW_Periodi
     return g_defaultStatus;
 }
 static NVPA_Status NVPW_PeriodicSampler_CounterData_GetTriggerCount_Default(NVPW_PeriodicSampler_CounterData_GetTriggerCount_Params* pParams)
+{
+    (void)pParams;
+    return g_defaultStatus;
+}
+static NVPA_Status NVPW_PeriodicSampler_CounterData_IsDataComplete_Default(NVPW_PeriodicSampler_CounterData_IsDataComplete_Params* pParams)
 {
     (void)pParams;
     return g_defaultStatus;
@@ -943,6 +966,31 @@ static NVPA_Status NVPW_GPU_PeriodicSampler_IsRecordBufferKeepLatestModeSupporte
     (void)pParams;
     return g_defaultStatus;
 }
+static NVPA_Status NVPW_GPU_PeriodicSampler_GetRecordBufferStatus_V2_Default(NVPW_GPU_PeriodicSampler_GetRecordBufferStatus_V2_Params* pParams)
+{
+    (void)pParams;
+    return g_defaultStatus;
+}
+static NVPA_Status NVPW_GPU_PeriodicSampler_GetGpuTimestamp_Default(NVPW_GPU_PeriodicSampler_GetGpuTimestamp_Params* pParams)
+{
+    (void)pParams;
+    return g_defaultStatus;
+}
+static NVPA_Status NVPW_GPU_PeriodicSampler_AcknowledgeRecordBuffer_Default(NVPW_GPU_PeriodicSampler_AcknowledgeRecordBuffer_Params* pParams)
+{
+    (void)pParams;
+    return g_defaultStatus;
+}
+static NVPA_Status NVPW_GPU_PeriodicSampler_SetRecordBufferReadOffset_Default(NVPW_GPU_PeriodicSampler_SetRecordBufferReadOffset_Params* pParams)
+{
+    (void)pParams;
+    return g_defaultStatus;
+}
+static NVPA_Status NVPW_GPU_PeriodicSampler_DecodeCounters_V3_Default(NVPW_GPU_PeriodicSampler_DecodeCounters_V3_Params* pParams)
+{
+    (void)pParams;
+    return g_defaultStatus;
+}
 static NVPA_Status NVPW_VK_RawMetricsConfig_Create_Default(NVPW_VK_RawMetricsConfig_Create_Params* pParams)
 {
     (void)pParams;
@@ -1241,6 +1289,8 @@ typedef struct NvPerfApi {
     NVPW_RawMetricsConfig_GetNumPasses_V2_Fn                     NVPW_RawMetricsConfig_GetNumPasses_V2;
     NVPW_PeriodicSampler_Config_GetSocEstimatedSampleSize_Fn     NVPW_PeriodicSampler_Config_GetSocEstimatedSampleSize;
     NVPW_PeriodicSampler_Config_GetGpuEstimatedSampleSize_Fn     NVPW_PeriodicSampler_Config_GetGpuEstimatedSampleSize;
+    NVPW_Config_GetRawCounterInfo_Fn                             NVPW_Config_GetRawCounterInfo;
+    NVPW_Config_GetRawCounters_Fn                                NVPW_Config_GetRawCounters;
     NVPW_CounterDataBuilder_Create_Fn                            NVPW_CounterDataBuilder_Create;
     NVPW_CounterDataBuilder_Destroy_Fn                           NVPW_CounterDataBuilder_Destroy;
     NVPW_CounterDataBuilder_AddMetrics_Fn                        NVPW_CounterDataBuilder_AddMetrics;
@@ -1278,6 +1328,7 @@ typedef struct NvPerfApi {
     NVPW_PeriodicSampler_CounterData_TrimInPlace_Fn              NVPW_PeriodicSampler_CounterData_TrimInPlace;
     NVPW_PeriodicSampler_CounterData_GetInfo_Fn                  NVPW_PeriodicSampler_CounterData_GetInfo;
     NVPW_PeriodicSampler_CounterData_GetTriggerCount_Fn          NVPW_PeriodicSampler_CounterData_GetTriggerCount;
+    NVPW_PeriodicSampler_CounterData_IsDataComplete_Fn           NVPW_PeriodicSampler_CounterData_IsDataComplete;
     NVPW_D3D12_RawMetricsConfig_Create_Fn                        NVPW_D3D12_RawMetricsConfig_Create;
     NVPW_D3D12_MetricsEvaluator_CalculateScratchBufferSize_Fn    NVPW_D3D12_MetricsEvaluator_CalculateScratchBufferSize;
     NVPW_D3D12_MetricsEvaluator_Initialize_Fn                    NVPW_D3D12_MetricsEvaluator_Initialize;
@@ -1353,6 +1404,11 @@ typedef struct NvPerfApi {
     NVPW_GPU_PeriodicSampler_DecodeCounters_Fn                   NVPW_GPU_PeriodicSampler_DecodeCounters;
     NVPW_GPU_PeriodicSampler_DecodeCounters_V2_Fn                NVPW_GPU_PeriodicSampler_DecodeCounters_V2;
     NVPW_GPU_PeriodicSampler_IsRecordBufferKeepLatestModeSupported_Fn NVPW_GPU_PeriodicSampler_IsRecordBufferKeepLatestModeSupported;
+    NVPW_GPU_PeriodicSampler_GetRecordBufferStatus_V2_Fn         NVPW_GPU_PeriodicSampler_GetRecordBufferStatus_V2;
+    NVPW_GPU_PeriodicSampler_GetGpuTimestamp_Fn                  NVPW_GPU_PeriodicSampler_GetGpuTimestamp;
+    NVPW_GPU_PeriodicSampler_AcknowledgeRecordBuffer_Fn          NVPW_GPU_PeriodicSampler_AcknowledgeRecordBuffer;
+    NVPW_GPU_PeriodicSampler_SetRecordBufferReadOffset_Fn        NVPW_GPU_PeriodicSampler_SetRecordBufferReadOffset;
+    NVPW_GPU_PeriodicSampler_DecodeCounters_V3_Fn                NVPW_GPU_PeriodicSampler_DecodeCounters_V3;
     NVPW_VK_RawMetricsConfig_Create_Fn                           NVPW_VK_RawMetricsConfig_Create;
     NVPW_VK_MetricsEvaluator_CalculateScratchBufferSize_Fn       NVPW_VK_MetricsEvaluator_CalculateScratchBufferSize;
     NVPW_VK_MetricsEvaluator_Initialize_Fn                       NVPW_VK_MetricsEvaluator_Initialize;
@@ -1455,6 +1511,8 @@ static NVPW_User_Api g_api = {
         , &NVPW_RawMetricsConfig_GetNumPasses_V2_Default
         , &NVPW_PeriodicSampler_Config_GetSocEstimatedSampleSize_Default
         , &NVPW_PeriodicSampler_Config_GetGpuEstimatedSampleSize_Default
+        , &NVPW_Config_GetRawCounterInfo_Default
+        , &NVPW_Config_GetRawCounters_Default
         , &NVPW_CounterDataBuilder_Create_Default
         , &NVPW_CounterDataBuilder_Destroy_Default
         , &NVPW_CounterDataBuilder_AddMetrics_Default
@@ -1492,6 +1550,7 @@ static NVPW_User_Api g_api = {
         , &NVPW_PeriodicSampler_CounterData_TrimInPlace_Default
         , &NVPW_PeriodicSampler_CounterData_GetInfo_Default
         , &NVPW_PeriodicSampler_CounterData_GetTriggerCount_Default
+        , &NVPW_PeriodicSampler_CounterData_IsDataComplete_Default
         , &NVPW_D3D12_RawMetricsConfig_Create_Default
         , &NVPW_D3D12_MetricsEvaluator_CalculateScratchBufferSize_Default
         , &NVPW_D3D12_MetricsEvaluator_Initialize_Default
@@ -1567,6 +1626,11 @@ static NVPW_User_Api g_api = {
         , &NVPW_GPU_PeriodicSampler_DecodeCounters_Default
         , &NVPW_GPU_PeriodicSampler_DecodeCounters_V2_Default
         , &NVPW_GPU_PeriodicSampler_IsRecordBufferKeepLatestModeSupported_Default
+        , &NVPW_GPU_PeriodicSampler_GetRecordBufferStatus_V2_Default
+        , &NVPW_GPU_PeriodicSampler_GetGpuTimestamp_Default
+        , &NVPW_GPU_PeriodicSampler_AcknowledgeRecordBuffer_Default
+        , &NVPW_GPU_PeriodicSampler_SetRecordBufferReadOffset_Default
+        , &NVPW_GPU_PeriodicSampler_DecodeCounters_V3_Default
         , &NVPW_VK_RawMetricsConfig_Create_Default
         , &NVPW_VK_MetricsEvaluator_CalculateScratchBufferSize_Default
         , &NVPW_VK_MetricsEvaluator_Initialize_Default
@@ -1658,6 +1722,8 @@ static void InitNvPerfProcs(void)
     g_api.fn.NVPW_RawMetricsConfig_GetNumPasses_V2 = (NVPW_RawMetricsConfig_GetNumPasses_V2_Fn)GetNvPerfProc("NVPW_RawMetricsConfig_GetNumPasses_V2", (NVPA_GenericFn)g_api.fn.NVPW_RawMetricsConfig_GetNumPasses_V2);
     g_api.fn.NVPW_PeriodicSampler_Config_GetSocEstimatedSampleSize = (NVPW_PeriodicSampler_Config_GetSocEstimatedSampleSize_Fn)GetNvPerfProc("NVPW_PeriodicSampler_Config_GetSocEstimatedSampleSize", (NVPA_GenericFn)g_api.fn.NVPW_PeriodicSampler_Config_GetSocEstimatedSampleSize);
     g_api.fn.NVPW_PeriodicSampler_Config_GetGpuEstimatedSampleSize = (NVPW_PeriodicSampler_Config_GetGpuEstimatedSampleSize_Fn)GetNvPerfProc("NVPW_PeriodicSampler_Config_GetGpuEstimatedSampleSize", (NVPA_GenericFn)g_api.fn.NVPW_PeriodicSampler_Config_GetGpuEstimatedSampleSize);
+    g_api.fn.NVPW_Config_GetRawCounterInfo = (NVPW_Config_GetRawCounterInfo_Fn)GetNvPerfProc("NVPW_Config_GetRawCounterInfo", (NVPA_GenericFn)g_api.fn.NVPW_Config_GetRawCounterInfo);
+    g_api.fn.NVPW_Config_GetRawCounters = (NVPW_Config_GetRawCounters_Fn)GetNvPerfProc("NVPW_Config_GetRawCounters", (NVPA_GenericFn)g_api.fn.NVPW_Config_GetRawCounters);
     g_api.fn.NVPW_CounterDataBuilder_Create = (NVPW_CounterDataBuilder_Create_Fn)GetNvPerfProc("NVPW_CounterDataBuilder_Create", (NVPA_GenericFn)g_api.fn.NVPW_CounterDataBuilder_Create);
     g_api.fn.NVPW_CounterDataBuilder_Destroy = (NVPW_CounterDataBuilder_Destroy_Fn)GetNvPerfProc("NVPW_CounterDataBuilder_Destroy", (NVPA_GenericFn)g_api.fn.NVPW_CounterDataBuilder_Destroy);
     g_api.fn.NVPW_CounterDataBuilder_AddMetrics = (NVPW_CounterDataBuilder_AddMetrics_Fn)GetNvPerfProc("NVPW_CounterDataBuilder_AddMetrics", (NVPA_GenericFn)g_api.fn.NVPW_CounterDataBuilder_AddMetrics);
@@ -1695,6 +1761,7 @@ static void InitNvPerfProcs(void)
     g_api.fn.NVPW_PeriodicSampler_CounterData_TrimInPlace = (NVPW_PeriodicSampler_CounterData_TrimInPlace_Fn)GetNvPerfProc("NVPW_PeriodicSampler_CounterData_TrimInPlace", (NVPA_GenericFn)g_api.fn.NVPW_PeriodicSampler_CounterData_TrimInPlace);
     g_api.fn.NVPW_PeriodicSampler_CounterData_GetInfo = (NVPW_PeriodicSampler_CounterData_GetInfo_Fn)GetNvPerfProc("NVPW_PeriodicSampler_CounterData_GetInfo", (NVPA_GenericFn)g_api.fn.NVPW_PeriodicSampler_CounterData_GetInfo);
     g_api.fn.NVPW_PeriodicSampler_CounterData_GetTriggerCount = (NVPW_PeriodicSampler_CounterData_GetTriggerCount_Fn)GetNvPerfProc("NVPW_PeriodicSampler_CounterData_GetTriggerCount", (NVPA_GenericFn)g_api.fn.NVPW_PeriodicSampler_CounterData_GetTriggerCount);
+    g_api.fn.NVPW_PeriodicSampler_CounterData_IsDataComplete = (NVPW_PeriodicSampler_CounterData_IsDataComplete_Fn)GetNvPerfProc("NVPW_PeriodicSampler_CounterData_IsDataComplete", (NVPA_GenericFn)g_api.fn.NVPW_PeriodicSampler_CounterData_IsDataComplete);
     g_api.fn.NVPW_D3D12_RawMetricsConfig_Create = (NVPW_D3D12_RawMetricsConfig_Create_Fn)GetNvPerfProc("NVPW_D3D12_RawMetricsConfig_Create", (NVPA_GenericFn)g_api.fn.NVPW_D3D12_RawMetricsConfig_Create);
     g_api.fn.NVPW_D3D12_MetricsEvaluator_CalculateScratchBufferSize = (NVPW_D3D12_MetricsEvaluator_CalculateScratchBufferSize_Fn)GetNvPerfProc("NVPW_D3D12_MetricsEvaluator_CalculateScratchBufferSize", (NVPA_GenericFn)g_api.fn.NVPW_D3D12_MetricsEvaluator_CalculateScratchBufferSize);
     g_api.fn.NVPW_D3D12_MetricsEvaluator_Initialize = (NVPW_D3D12_MetricsEvaluator_Initialize_Fn)GetNvPerfProc("NVPW_D3D12_MetricsEvaluator_Initialize", (NVPA_GenericFn)g_api.fn.NVPW_D3D12_MetricsEvaluator_Initialize);
@@ -1770,6 +1837,11 @@ static void InitNvPerfProcs(void)
     g_api.fn.NVPW_GPU_PeriodicSampler_DecodeCounters = (NVPW_GPU_PeriodicSampler_DecodeCounters_Fn)GetNvPerfProc("NVPW_GPU_PeriodicSampler_DecodeCounters", (NVPA_GenericFn)g_api.fn.NVPW_GPU_PeriodicSampler_DecodeCounters);
     g_api.fn.NVPW_GPU_PeriodicSampler_DecodeCounters_V2 = (NVPW_GPU_PeriodicSampler_DecodeCounters_V2_Fn)GetNvPerfProc("NVPW_GPU_PeriodicSampler_DecodeCounters_V2", (NVPA_GenericFn)g_api.fn.NVPW_GPU_PeriodicSampler_DecodeCounters_V2);
     g_api.fn.NVPW_GPU_PeriodicSampler_IsRecordBufferKeepLatestModeSupported = (NVPW_GPU_PeriodicSampler_IsRecordBufferKeepLatestModeSupported_Fn)GetNvPerfProc("NVPW_GPU_PeriodicSampler_IsRecordBufferKeepLatestModeSupported", (NVPA_GenericFn)g_api.fn.NVPW_GPU_PeriodicSampler_IsRecordBufferKeepLatestModeSupported);
+    g_api.fn.NVPW_GPU_PeriodicSampler_GetRecordBufferStatus_V2 = (NVPW_GPU_PeriodicSampler_GetRecordBufferStatus_V2_Fn)GetNvPerfProc("NVPW_GPU_PeriodicSampler_GetRecordBufferStatus_V2", (NVPA_GenericFn)g_api.fn.NVPW_GPU_PeriodicSampler_GetRecordBufferStatus_V2);
+    g_api.fn.NVPW_GPU_PeriodicSampler_GetGpuTimestamp = (NVPW_GPU_PeriodicSampler_GetGpuTimestamp_Fn)GetNvPerfProc("NVPW_GPU_PeriodicSampler_GetGpuTimestamp", (NVPA_GenericFn)g_api.fn.NVPW_GPU_PeriodicSampler_GetGpuTimestamp);
+    g_api.fn.NVPW_GPU_PeriodicSampler_AcknowledgeRecordBuffer = (NVPW_GPU_PeriodicSampler_AcknowledgeRecordBuffer_Fn)GetNvPerfProc("NVPW_GPU_PeriodicSampler_AcknowledgeRecordBuffer", (NVPA_GenericFn)g_api.fn.NVPW_GPU_PeriodicSampler_AcknowledgeRecordBuffer);
+    g_api.fn.NVPW_GPU_PeriodicSampler_SetRecordBufferReadOffset = (NVPW_GPU_PeriodicSampler_SetRecordBufferReadOffset_Fn)GetNvPerfProc("NVPW_GPU_PeriodicSampler_SetRecordBufferReadOffset", (NVPA_GenericFn)g_api.fn.NVPW_GPU_PeriodicSampler_SetRecordBufferReadOffset);
+    g_api.fn.NVPW_GPU_PeriodicSampler_DecodeCounters_V3 = (NVPW_GPU_PeriodicSampler_DecodeCounters_V3_Fn)GetNvPerfProc("NVPW_GPU_PeriodicSampler_DecodeCounters_V3", (NVPA_GenericFn)g_api.fn.NVPW_GPU_PeriodicSampler_DecodeCounters_V3);
     g_api.fn.NVPW_VK_RawMetricsConfig_Create = (NVPW_VK_RawMetricsConfig_Create_Fn)GetNvPerfProc("NVPW_VK_RawMetricsConfig_Create", (NVPA_GenericFn)g_api.fn.NVPW_VK_RawMetricsConfig_Create);
     g_api.fn.NVPW_VK_MetricsEvaluator_CalculateScratchBufferSize = (NVPW_VK_MetricsEvaluator_CalculateScratchBufferSize_Fn)GetNvPerfProc("NVPW_VK_MetricsEvaluator_CalculateScratchBufferSize", (NVPA_GenericFn)g_api.fn.NVPW_VK_MetricsEvaluator_CalculateScratchBufferSize);
     g_api.fn.NVPW_VK_MetricsEvaluator_Initialize = (NVPW_VK_MetricsEvaluator_Initialize_Fn)GetNvPerfProc("NVPW_VK_MetricsEvaluator_Initialize", (NVPA_GenericFn)g_api.fn.NVPW_VK_MetricsEvaluator_Initialize);
@@ -1951,6 +2023,14 @@ NVPA_Status NVPW_PeriodicSampler_Config_GetGpuEstimatedSampleSize(NVPW_PeriodicS
 {
     return g_api.fn.NVPW_PeriodicSampler_Config_GetGpuEstimatedSampleSize(pParams);
 }
+NVPA_Status NVPW_Config_GetRawCounterInfo(NVPW_Config_GetRawCounterInfo_Params* pParams)
+{
+    return g_api.fn.NVPW_Config_GetRawCounterInfo(pParams);
+}
+NVPA_Status NVPW_Config_GetRawCounters(NVPW_Config_GetRawCounters_Params* pParams)
+{
+    return g_api.fn.NVPW_Config_GetRawCounters(pParams);
+}
 NVPA_Status NVPW_CounterDataBuilder_Create(NVPW_CounterDataBuilder_Create_Params* pParams)
 {
     return g_api.fn.NVPW_CounterDataBuilder_Create(pParams);
@@ -2098,6 +2178,10 @@ NVPA_Status NVPW_PeriodicSampler_CounterData_GetInfo(NVPW_PeriodicSampler_Counte
 NVPA_Status NVPW_PeriodicSampler_CounterData_GetTriggerCount(NVPW_PeriodicSampler_CounterData_GetTriggerCount_Params* pParams)
 {
     return g_api.fn.NVPW_PeriodicSampler_CounterData_GetTriggerCount(pParams);
+}
+NVPA_Status NVPW_PeriodicSampler_CounterData_IsDataComplete(NVPW_PeriodicSampler_CounterData_IsDataComplete_Params* pParams)
+{
+    return g_api.fn.NVPW_PeriodicSampler_CounterData_IsDataComplete(pParams);
 }
 NVPA_Status NVPW_D3D12_RawMetricsConfig_Create(NVPW_D3D12_RawMetricsConfig_Create_Params* pParams)
 {
@@ -2398,6 +2482,26 @@ NVPA_Status NVPW_GPU_PeriodicSampler_DecodeCounters_V2(NVPW_GPU_PeriodicSampler_
 NVPA_Status NVPW_GPU_PeriodicSampler_IsRecordBufferKeepLatestModeSupported(NVPW_GPU_PeriodicSampler_IsRecordBufferKeepLatestModeSupported_Params* pParams)
 {
     return g_api.fn.NVPW_GPU_PeriodicSampler_IsRecordBufferKeepLatestModeSupported(pParams);
+}
+NVPA_Status NVPW_GPU_PeriodicSampler_GetRecordBufferStatus_V2(NVPW_GPU_PeriodicSampler_GetRecordBufferStatus_V2_Params* pParams)
+{
+    return g_api.fn.NVPW_GPU_PeriodicSampler_GetRecordBufferStatus_V2(pParams);
+}
+NVPA_Status NVPW_GPU_PeriodicSampler_GetGpuTimestamp(NVPW_GPU_PeriodicSampler_GetGpuTimestamp_Params* pParams)
+{
+    return g_api.fn.NVPW_GPU_PeriodicSampler_GetGpuTimestamp(pParams);
+}
+NVPA_Status NVPW_GPU_PeriodicSampler_AcknowledgeRecordBuffer(NVPW_GPU_PeriodicSampler_AcknowledgeRecordBuffer_Params* pParams)
+{
+    return g_api.fn.NVPW_GPU_PeriodicSampler_AcknowledgeRecordBuffer(pParams);
+}
+NVPA_Status NVPW_GPU_PeriodicSampler_SetRecordBufferReadOffset(NVPW_GPU_PeriodicSampler_SetRecordBufferReadOffset_Params* pParams)
+{
+    return g_api.fn.NVPW_GPU_PeriodicSampler_SetRecordBufferReadOffset(pParams);
+}
+NVPA_Status NVPW_GPU_PeriodicSampler_DecodeCounters_V3(NVPW_GPU_PeriodicSampler_DecodeCounters_V3_Params* pParams)
+{
+    return g_api.fn.NVPW_GPU_PeriodicSampler_DecodeCounters_V3(pParams);
 }
 NVPA_Status NVPW_VK_RawMetricsConfig_Create(NVPW_VK_RawMetricsConfig_Create_Params* pParams)
 {
@@ -2739,6 +2843,7 @@ static int InitNvPerf(void)
         g_api.hModNvPerf = LoadNvPerfLibrary();
         if (!g_api.hModNvPerf)
         {
+            g_defaultStatus = NVPA_STATUS_NOT_LOADED;
             return 0;
         }
     }

@@ -1,5 +1,5 @@
 /*
-* Copyright 2014-2022 NVIDIA Corporation.  All rights reserved.
+* Copyright 2014-2024 NVIDIA Corporation.  All rights reserved.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -63,13 +63,23 @@ namespace nv { namespace perf {
 
         void Reset()
         {
+            NVPA_Status nvpaStatus;
+
             NVPW_RawMetricsConfig_Destroy_Params rawMetricsConfigParams = { NVPW_RawMetricsConfig_Destroy_Params_STRUCT_SIZE };
             rawMetricsConfigParams.pRawMetricsConfig = m_pRawMetricsConfig;
-            NVPW_RawMetricsConfig_Destroy(&rawMetricsConfigParams);
+            nvpaStatus = NVPW_RawMetricsConfig_Destroy(&rawMetricsConfigParams);
+            if (nvpaStatus)
+            {
+                NV_PERF_LOG_ERR(100, "NVPW_RawMetricsConfig_Destroy failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
+            }
 
             NVPW_CounterDataBuilder_Destroy_Params counterDataBuilderParams = { NVPW_CounterDataBuilder_Destroy_Params_STRUCT_SIZE };
             counterDataBuilderParams.pCounterDataBuilder = m_pCounterDataBuilder;
-            NVPW_CounterDataBuilder_Destroy(&counterDataBuilderParams);
+            nvpaStatus = NVPW_CounterDataBuilder_Destroy(&counterDataBuilderParams);
+            if (nvpaStatus)
+            {
+                NV_PERF_LOG_ERR(100, "NVPW_CounterDataBuilder_Destroy failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
+            }
 
             m_pMetricsEvaluator     = nullptr;
             m_pRawMetricsConfig     = nullptr;
@@ -88,6 +98,7 @@ namespace nv { namespace perf {
             nvpaStatus = NVPW_CounterDataBuilder_Create(&counterDataBuilderParams);
             if (nvpaStatus)
             {
+                NV_PERF_LOG_ERR(20, "NVPW_CounterDataBuilder_Create failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
                 return false;
             }
 
@@ -98,6 +109,7 @@ namespace nv { namespace perf {
             nvpaStatus = NVPW_RawMetricsConfig_BeginPassGroup(&beginPassGroupParams);
             if (nvpaStatus)
             {
+                NV_PERF_LOG_ERR(20, "NVPW_RawMetricsConfig_BeginPassGroup failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
                 return false;
             }
             m_configuring = true;
@@ -108,27 +120,10 @@ namespace nv { namespace perf {
         bool AddMetrics(const NVPW_MetricEvalRequest* pMetricEvalRequests, size_t numMetricEvalRequests, bool keepInstances = true)
         {
             NVPA_Status nvpaStatus;
-            NVPW_MetricsEvaluator_GetMetricRawDependencies_Params getMetricRawDependenciesParams = { NVPW_MetricsEvaluator_GetMetricRawDependencies_Params_STRUCT_SIZE };
-            getMetricRawDependenciesParams.pMetricsEvaluator = m_pMetricsEvaluator;
-            getMetricRawDependenciesParams.pMetricEvalRequests = pMetricEvalRequests;
-            getMetricRawDependenciesParams.numMetricEvalRequests = numMetricEvalRequests;
-            getMetricRawDependenciesParams.metricEvalRequestStructSize = NVPW_MetricEvalRequest_STRUCT_SIZE;
-            getMetricRawDependenciesParams.metricEvalRequestStrideSize = sizeof(NVPW_MetricEvalRequest);
-            nvpaStatus = NVPW_MetricsEvaluator_GetMetricRawDependencies(&getMetricRawDependenciesParams);
-            if (nvpaStatus)
+            std::vector<const char*> rawDependencies;
+            std::vector<const char*> optionalRawDependencies;
+            if (!GetMetricRawCounterDependencies(m_pMetricsEvaluator, pMetricEvalRequests, numMetricEvalRequests, rawDependencies, optionalRawDependencies))
             {
-                NV_PERF_LOG_ERR(50, "NVPW_MetricsEvaluator_GetMetricRawDependencies failed\n");
-                return false;
-            }
-
-            std::vector<const char*> rawDependencies(getMetricRawDependenciesParams.numRawDependencies);
-            std::vector<const char*> optionalRawDependencies(getMetricRawDependenciesParams.numOptionalRawDependencies);
-            getMetricRawDependenciesParams.ppRawDependencies = rawDependencies.data();
-            getMetricRawDependenciesParams.ppOptionalRawDependencies = optionalRawDependencies.data();
-            nvpaStatus = NVPW_MetricsEvaluator_GetMetricRawDependencies(&getMetricRawDependenciesParams);
-            if (nvpaStatus)
-            {
-                NV_PERF_LOG_ERR(50, "NVPW_MetricsEvaluator_GetMetricRawDependencies failed\n");
                 return false;
             }
 
@@ -144,14 +139,14 @@ namespace nv { namespace perf {
                 nvpaStatus = NVPW_CounterDataBuilder_AddMetrics(&addMetricParams);
                 if (nvpaStatus)
                 {
-                    const char* pString = "NVPW_CounterDataBuilder_AddMetrics failed for raw metric: %s\n";
+                    const char* pString = "NVPW_CounterDataBuilder_AddMetrics failed for raw metric: %s, nvpaStatus = %s\n";
                     if (emitError)
                     {
-                        NV_PERF_LOG_ERR(50, pString, pRawMetricName);
+                        NV_PERF_LOG_ERR(50, pString, pRawMetricName, FormatStatus(nvpaStatus).c_str());
                     }
                     else
                     {
-                        NV_PERF_LOG_WRN(50, pString, pRawMetricName);
+                        NV_PERF_LOG_WRN(50, pString, pRawMetricName, FormatStatus(nvpaStatus).c_str());
                     }
                     return false;
                 }
@@ -163,14 +158,14 @@ namespace nv { namespace perf {
                 nvpaStatus = NVPW_RawMetricsConfig_AddMetrics(&configAddMetricParams);
                 if (nvpaStatus)
                 {
-                    const char* pString = "NVPW_RawMetricsConfig_AddMetrics failed for raw metric: %s\n";
+                    const char* pString = "NVPW_RawMetricsConfig_AddMetrics failed for raw metric: %s, nvpaStatus = %s\n";
                     if (emitError)
                     {
-                        NV_PERF_LOG_ERR(50, pString, pRawMetricName);
+                        NV_PERF_LOG_ERR(50, pString, pRawMetricName, FormatStatus(nvpaStatus).c_str());
                     }
                     else
                     {
-                        NV_PERF_LOG_WRN(50, pString, pRawMetricName);
+                        NV_PERF_LOG_WRN(50, pString, pRawMetricName, FormatStatus(nvpaStatus).c_str());
                     }
                     return false;
                 }
@@ -238,6 +233,7 @@ namespace nv { namespace perf {
             nvpaStatus = NVPW_RawMetricsConfig_EndPassGroup(&endPassGroupParam);
             if (nvpaStatus)
             {
+                NV_PERF_LOG_ERR(20, "NVPW_RawMetricsConfig_EndPassGroup failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
                 return false;
             }
 
@@ -246,6 +242,7 @@ namespace nv { namespace perf {
             nvpaStatus = NVPW_RawMetricsConfig_GenerateConfigImage(&generateConfigImageParam);
             if (nvpaStatus)
             {
+                NV_PERF_LOG_ERR(20, "NVPW_RawMetricsConfig_GenerateConfigImage failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
                 return false;
             }
 
@@ -256,6 +253,7 @@ namespace nv { namespace perf {
             nvpaStatus = NVPW_RawMetricsConfig_BeginPassGroup(&beginPassGroupParams);
             if (nvpaStatus)
             {
+                NV_PERF_LOG_ERR(20, "NVPW_RawMetricsConfig_BeginPassGroup failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
                 return false;
             }
             m_configuring = true;
@@ -273,6 +271,7 @@ namespace nv { namespace perf {
             NVPA_Status nvpaStatus = NVPW_RawMetricsConfig_GetConfigImage(&getConfigImageParam);
             if (nvpaStatus)
             {
+                NV_PERF_LOG_ERR(20, "NVPW_RawMetricsConfig_GetConfigImage failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
                 return 0;
             }
 
@@ -289,6 +288,7 @@ namespace nv { namespace perf {
             NVPA_Status nvpaStatus = NVPW_RawMetricsConfig_GetConfigImage(&getConfigImageParam);
             if (nvpaStatus)
             {
+                NV_PERF_LOG_ERR(20, "NVPW_RawMetricsConfig_GetConfigImage failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
                 return false;
             }
             return true;
@@ -304,6 +304,7 @@ namespace nv { namespace perf {
             NVPA_Status nvpaStatus = NVPW_CounterDataBuilder_GetCounterDataPrefix(&getCounterDataPrefixParams);
             if (nvpaStatus)
             {
+                NV_PERF_LOG_ERR(20, "NVPW_CounterDataBuilder_GetCounterDataPrefix failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
                 return 0;
             }
 
@@ -320,6 +321,7 @@ namespace nv { namespace perf {
             NVPA_Status nvpaStatus = NVPW_CounterDataBuilder_GetCounterDataPrefix(&getCounterDataPrefixParams);
             if (nvpaStatus)
             {
+                NV_PERF_LOG_ERR(20, "NVPW_CounterDataBuilder_GetCounterDataPrefix failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
                 return false;
             }
             return true;
@@ -336,6 +338,7 @@ namespace nv { namespace perf {
             NVPA_Status nvpaStatus = NVPW_RawMetricsConfig_GetNumPasses_V2(&getNumPassesParams);
             if (nvpaStatus)
             {
+                NV_PERF_LOG_ERR(20, "NVPW_RawMetricsConfig_GetNumPasses_V2 failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
                 return 0u;
             }
             return getNumPassesParams.numPasses;

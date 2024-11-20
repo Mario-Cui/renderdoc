@@ -141,6 +141,8 @@ bool is_exr_file(const byte *headerBuffer, size_t size)
 
 static const uint32_t MAGIC_HEADER = MAKE_FOURCC('R', 'D', 'O', 'C');
 
+rdcstr RDCFile::sm_CurrentOpenFile = {};
+
 namespace
 {
 struct FileHeader
@@ -235,6 +237,8 @@ RDCFile::~RDCFile()
 
 void RDCFile::Open(const rdcstr &path)
 {
+  RDCFile::SetCurrentOpenFile(path);
+
   // silently fail when opening the empty string, to allow 'releasing' a capture file by opening an
   // empty path.
   if(path.empty())

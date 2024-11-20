@@ -27,6 +27,7 @@
 #include "common/common.h"
 #include "common/formatting.h"
 #include "os/os_specific.h"
+#include "serialise/rdcfile.h"
 #include "strings/string_utils.h"
 
 #if ENABLED(RDOC_WIN32)
@@ -523,7 +524,9 @@ bool NVCounterEnumerator::EvaluateMetrics(const uint8_t *counterDataImage,
   auto now = std::chrono::system_clock::now();
   const uint64_t secondsSinceEpoch = static_cast<uint64_t>(std::chrono::system_clock::to_time_t(now));
 
-  std::string reportDirName = "./NvPerfReports";
+  std::string reportDirName = RDCFile::GetCurrentOpenFile().c_str();
+
+  reportDirName = reportDirName.substr(0, reportDirName.find_last_of('.'));
 
   const std::string formattedTime = nv::perf::FormatTime(secondsSinceEpoch);
   if(!formattedTime.empty())

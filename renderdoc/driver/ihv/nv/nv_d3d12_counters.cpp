@@ -33,10 +33,10 @@
 #include "driver/d3d12/d3d12_device.h"
 #include "driver/d3d12/d3d12_replay.h"
 
+#include <iostream>
 #include "NvPerfD3D12.h"
 #include "NvPerfRangeProfilerD3D12.h"
 #include "NvPerfScopeExitGuard.h"
-
 struct NVD3D12Counters::Impl
 {
   NVCounterEnumerator *CounterEnumerator;
@@ -52,19 +52,29 @@ struct NVD3D12Counters::Impl
   static void LogNvPerfAsDebugMessage(const char *pPrefix, const char *pDate, const char *pTime,
                                       const char *pFunctionName, const char *pMessage, void *pData)
   {
-    WrappedID3D12Device *device = (WrappedID3D12Device *)pData;
     rdcstr message =
         StringFormat::Fmt("NVIDIA Nsight Perf SDK\n%s%s\n%s", pPrefix, pFunctionName, pMessage);
+#if 0
+    WrappedID3D12Device *device = (WrappedID3D12Device *)pData;
     device->AddDebugMessage(MessageCategory::Miscellaneous, MessageSeverity::High,
                             MessageSource::RuntimeWarning, message);
+
+#else
+    std::cout << message.c_str() << std::endl;
+#endif
   }
 
   static void LogDebugMessage(const char *pFunctionName, const char *pMessage,
                               WrappedID3D12Device &device)
   {
     rdcstr message = StringFormat::Fmt("NVIDIA Nsight Perf SDK\n%s\n%s", pFunctionName, pMessage);
+
+#if 0
     device.AddDebugMessage(MessageCategory::Miscellaneous, MessageSeverity::High,
                            MessageSource::RuntimeWarning, message);
+#else
+    std::cout << message.c_str() << std::endl;
+#endif
   }
 
   bool TryInitializePerfSDK(WrappedID3D12Device &device)

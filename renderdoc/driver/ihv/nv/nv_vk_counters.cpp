@@ -30,6 +30,7 @@
 #include "driver/vulkan/vk_replay.h"
 
 #define NV_PERF_UTILITY_HIDE_VULKAN_SYMBOLS
+#include <iostream>
 #include "NvPerfRangeProfilerVulkan.h"
 #include "NvPerfScopeExitGuard.h"
 #include "NvPerfVulkan.h"
@@ -49,18 +50,26 @@ struct NVVulkanCounters::Impl
   static void LogNvPerfAsDebugMessage(const char *pPrefix, const char *pDate, const char *pTime,
                                       const char *pFunctionName, const char *pMessage, void *pData)
   {
-    WrappedVulkan *driver = (WrappedVulkan *)pData;
     rdcstr message =
         StringFormat::Fmt("NVIDIA Nsight Perf SDK\n%s%s\n%s", pPrefix, pFunctionName, pMessage);
+#if USE_FOR_CMD
+    WrappedVulkan *driver = (WrappedVulkan *)pData;
     driver->AddDebugMessage(MessageCategory::Miscellaneous, MessageSeverity::High,
                             MessageSource::RuntimeWarning, message);
+#else
+    std::cout << message.c_str() << std::endl;
+#endif
   }
 
   static void LogDebugMessage(const char *pFunctionName, const char *pMessage, WrappedVulkan *driver)
   {
     rdcstr message = StringFormat::Fmt("NVIDIA Nsight Perf SDK\n%s\n%s", pFunctionName, pMessage);
+#if USE_FOR_CMD
     driver->AddDebugMessage(MessageCategory::Miscellaneous, MessageSeverity::High,
                             MessageSource::RuntimeWarning, message);
+#else
+    std::cout << message.c_str() << std::endl;
+#endif
   }
 
   bool TryInitializePerfSDK(WrappedVulkan *driver)

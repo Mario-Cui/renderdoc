@@ -28,6 +28,7 @@
 
 #include "driver/gl/gl_driver.h"
 
+#include <iostream>
 #include "NvPerfOpenGL.h"
 #include "NvPerfRangeProfilerOpenGL.h"
 #include "NvPerfScopeExitGuard.h"
@@ -40,18 +41,27 @@ struct NVGLCounters::Impl
   static void LogNvPerfAsDebugMessage(const char *pPrefix, const char *pDate, const char *pTime,
                                       const char *pFunctionName, const char *pMessage, void *pData)
   {
-    WrappedOpenGL *driver = (WrappedOpenGL *)pData;
     rdcstr message =
         StringFormat::Fmt("NVIDIA Nsight Perf SDK\n%s%s\n%s", pPrefix, pFunctionName, pMessage);
+#if USE_FOR_CMD
+    WrappedOpenGL *driver = (WrappedOpenGL *)pData;
     driver->AddDebugMessage(MessageCategory::Miscellaneous, MessageSeverity::High,
                             MessageSource::RuntimeWarning, message);
+#else
+
+    std::cout << message.c_str() << std::endl;
+#endif
   }
 
   static void LogDebugMessage(const char *pFunctionName, const char *pMessage, WrappedOpenGL *driver)
   {
     rdcstr message = StringFormat::Fmt("NVIDIA Nsight Perf SDK\n%s\n%s", pFunctionName, pMessage);
+#if USE_FOR_CMD
     driver->AddDebugMessage(MessageCategory::Miscellaneous, MessageSeverity::High,
                             MessageSource::RuntimeWarning, message);
+#else
+    std::cout << message.c_str() << std::endl;
+#endif
   }
 
   Impl() : CounterEnumerator(NULL) {}

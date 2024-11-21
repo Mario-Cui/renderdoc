@@ -587,6 +587,10 @@ bool NVCounterEnumerator::EvaluateMetrics(const uint8_t *counterDataImage,
   nv::perf::PerRangeReport::WriteHtmlReportFiles(m_Impl->Evaluator, reportLayout, reportData);
   nv::perf::SchedulingInfo::WriteHtmlReportFile(m_Impl->Evaluator, reportLayout, reportData,
                                                 m_Impl->SelectedConfiguration);
+
+  nv::perf::SummaryReport::WriteCsvReportFile(m_Impl->Evaluator, reportLayout, reportData);
+  nv::perf::PerRangeReport::WriteCsvReportFile(m_Impl->Evaluator, reportLayout, reportData);
+
 #endif
 
   return true;

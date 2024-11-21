@@ -30,6 +30,8 @@
 #include "api/replay/replay_enums.h"
 #include "common/common.h"
 
+#define USE_FOR_CMD 0
+
 struct NVPA_RawMetricsConfig;
 namespace nv
 {

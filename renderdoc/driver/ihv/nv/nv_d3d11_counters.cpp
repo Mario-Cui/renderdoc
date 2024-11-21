@@ -34,6 +34,8 @@
 #include "NvPerfRangeProfilerD3D11.h"
 #include "NvPerfScopeExitGuard.h"
 
+#include <iostream>
+
 struct NVD3D11Counters::Impl
 {
   NVCounterEnumerator *CounterEnumerator;
@@ -49,19 +51,27 @@ struct NVD3D11Counters::Impl
   static void LogNvPerfAsDebugMessage(const char *pPrefix, const char *pDate, const char *pTime,
                                       const char *pFunctionName, const char *pMessage, void *pData)
   {
-    WrappedID3D11Device *device = (WrappedID3D11Device *)pData;
     rdcstr message =
         StringFormat::Fmt("NVIDIA Nsight Perf SDK\n%s%s\n%s", pPrefix, pFunctionName, pMessage);
+#if USE_FOR_CMD
+    WrappedID3D11Device *device = (WrappedID3D11Device *)pData;
     device->AddDebugMessage(MessageCategory::Miscellaneous, MessageSeverity::High,
                             MessageSource::RuntimeWarning, message);
+#else
+    std::cout << message.c_str() << std::endl;
+#endif
   }
 
   static void LogDebugMessage(const char *pFunctionName, const char *pMessage,
                               WrappedID3D11Device *device)
   {
     rdcstr message = StringFormat::Fmt("NVIDIA Nsight Perf SDK\n%s\n%s", pFunctionName, pMessage);
+#if USE_FOR_CMD
     device->AddDebugMessage(MessageCategory::Miscellaneous, MessageSeverity::High,
                             MessageSource::RuntimeWarning, message);
+#else
+    std::cout << message.c_str() << std::endl;
+#endif
   }
 
   bool TryInitializePerfSDK(WrappedID3D11Device *device)

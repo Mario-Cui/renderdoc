@@ -1998,6 +1998,14 @@ bool ReplayController::FatalErrorCheck()
   return false;
 }
 
+// mc tag begin
+rdcarray<ActionResDescription> &ReplayController::GetActionRes()
+{
+  CHECK_REPLAY_THREAD();
+  return m_pDevice->GetActionRes();
+}
+// mc tag end
+
 rdcarray<ShaderEncoding> ReplayController::GetCustomShaderEncodings()
 {
   CHECK_REPLAY_THREAD();

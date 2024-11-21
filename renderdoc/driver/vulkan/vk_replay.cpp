@@ -5209,6 +5209,13 @@ void VulkanReplay::SetProxyBufferData(ResourceId bufid, byte *data, size_t dataS
   VULKANNOTIMP("SetProxyTextureData");
 }
 
+// mc tag begin
+rdcarray<ActionResDescription> &VulkanReplay::GetActionRes()
+{
+  return m_pDriver->GetActionResDesc();
+}
+// mc tag end
+
 RDResult Vulkan_CreateReplayDevice(RDCFile *rdc, const ReplayOptions &opts, IReplayDriver **driver)
 {
   RDCDEBUG("Creating a VulkanReplay replay device");

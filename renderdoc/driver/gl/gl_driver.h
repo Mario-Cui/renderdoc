@@ -278,7 +278,9 @@ private:
   rdcarray<FrameDescription> m_CapturedFrames;
   rdcarray<ActionDescription *> m_Actions;
   rdcarray<GLDrawParams> m_DrawcallParams;
-
+  // mc tag begin
+  rdcarray<ActionResDescription> m_ActionResStack;
+  // mc tag end
   // replay
 
   rdcarray<APIEvent> m_CurEvents, m_Events;
@@ -631,6 +633,10 @@ public:
   RDCDriver GetDriverType() { return m_DriverType; }
   ContextPair &GetCtx();
   GLResourceRecord *GetContextRecord();
+
+  // mc tag begin
+  rdcarray<ActionResDescription> &GetActionResDesc() { return m_ActionResStack; }
+  // mc tag end
 
   void UseUnusedSupportedFunction(const char *name);
   void CheckImplicitThread();

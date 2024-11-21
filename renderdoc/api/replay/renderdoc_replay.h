@@ -1110,6 +1110,14 @@ texture to something compatible with the target file format.
 )");
   virtual bytebuf GetTextureData(ResourceId tex, const Subresource &sub) = 0;
 
+  // mc tag begin
+  DOCUMENT(R"(action res.
+:return: The list of actionsRes
+:rtype: List[ActionResDescription]
+)");
+  virtual rdcarray<ActionResDescription> &GetActionRes() = 0;
+  // mc tag end
+
   static const uint32_t NoPreference = ~0U;
 
 protected:

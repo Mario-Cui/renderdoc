@@ -2188,7 +2188,8 @@ void D3D12CommandData::AddUsageForBindInRootSig(const D3D12RenderState &state,
   }
 }
 
-void D3D12CommandData::AddUsage(const D3D12RenderState &state, D3D12ActionTreeNode &actionNode)
+void D3D12CommandData::AddUsage(const D3D12RenderState &state, D3D12ActionTreeNode &actionNode,
+                                rdcarray<ActionResDescription> &actionResStack)
 {
   ActionDescription &a = actionNode.action;
 
@@ -2204,6 +2205,10 @@ void D3D12CommandData::AddUsage(const D3D12RenderState &state, D3D12ActionTreeNo
 
   WrappedID3D12PipelineState *pipe = NULL;
 
+  // mc tag begin
+  bool isCompute = false;
+  // mc tag end
+
   if(state.pipe != ResourceId())
     pipe = rm->GetCurrentAs<WrappedID3D12PipelineState>(state.pipe);
 
@@ -2212,6 +2217,10 @@ void D3D12CommandData::AddUsage(const D3D12RenderState &state, D3D12ActionTreeNo
   if((a.flags & ActionFlags::Dispatch) && state.compute.rootsig != ResourceId())
   {
     rootsig = &state.compute;
+
+    // mc tag begin
+    isCompute = true;
+    // mc tag end
 
     if(pipe && pipe->IsCompute())
     {
@@ -2290,6 +2299,48 @@ void D3D12CommandData::AddUsage(const D3D12RenderState &state, D3D12ActionTreeNo
 
   if(rootsig)
   {
+    // mc tag begin
+    ActionResDescription resDesc = {};
+    resDesc.flags = a.flags;
+    resDesc.eventId = eid;
+    if(state.pipe != ResourceId())
+    {
+      WrappedID3D12PipelineState *dx12Pipe = rm->GetCurrentAs<WrappedID3D12PipelineState>(state.pipe);
+
+      WrappedID3D12Shader *sh = nullptr;
+      if(isCompute)
+      {
+        sh = (WrappedID3D12Shader *)dx12Pipe->compute->CS.pShaderBytecode;
+        if(nullptr != sh)
+          resDesc.cs = rm->GetUnreplacedOriginalID(sh->GetResourceID());
+      }
+      else
+      {
+        sh = (WrappedID3D12Shader *)dx12Pipe->graphics->VS.pShaderBytecode;
+        if(nullptr != sh)
+          resDesc.vs = rm->GetUnreplacedOriginalID(sh->GetResourceID());
+
+        sh = (WrappedID3D12Shader *)dx12Pipe->graphics->HS.pShaderBytecode;
+        if(nullptr != sh)
+          resDesc.hs = rm->GetUnreplacedOriginalID(sh->GetResourceID());
+
+        sh = (WrappedID3D12Shader *)dx12Pipe->graphics->DS.pShaderBytecode;
+        if(nullptr != sh)
+          resDesc.ds = rm->GetUnreplacedOriginalID(sh->GetResourceID());
+
+        sh = (WrappedID3D12Shader *)dx12Pipe->graphics->GS.pShaderBytecode;
+        if(nullptr != sh)
+          resDesc.gs = rm->GetUnreplacedOriginalID(sh->GetResourceID());
+
+        sh = (WrappedID3D12Shader *)dx12Pipe->graphics->PS.pShaderBytecode;
+        if(nullptr != sh)
+          resDesc.ps = rm->GetUnreplacedOriginalID(sh->GetResourceID());
+      }
+    }
+
+    actionResStack.push_back(resDesc);
+    // mc tag end
+
     // iterate over each stage, looking at its used binds, then for each bind find it in the root
     // signature. We have to do this kind of N:N lookup because of D3D12's bad design, but this
     // should be a better way around to do it than iterating over the root signature and finding a
@@ -2374,7 +2425,8 @@ void D3D12CommandData::AddAction(const ActionDescription &a)
     node.resourceUsage.swap(m_BakedCmdListInfo[m_LastCmdListID].resourceUsage);
 
     if(m_LastCmdListID != ResourceId())
-      AddUsage(m_BakedCmdListInfo[m_LastCmdListID].state, node);
+      AddUsage(m_BakedCmdListInfo[m_LastCmdListID].state, node,
+               m_BakedCmdListInfo[m_LastCmdListID].actionResStack);
 
     for(const ActionDescription &child : action.children)
       node.children.push_back(D3D12ActionTreeNode(child));

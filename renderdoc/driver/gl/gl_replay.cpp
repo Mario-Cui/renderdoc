@@ -4337,6 +4337,13 @@ void GLReplay::CloseReplayContext()
   m_pDriver->UnregisterReplayContext(m_ReplayCtx);
 }
 
+// mc tag begin
+rdcarray<ActionResDescription> &GLReplay::GetActionRes()
+{
+  return m_pDriver->GetActionResDesc();
+}
+// mc tag end
+
 RDResult CreateReplayDevice(RDCDriver rdcdriver, RDCFile *rdc, const ReplayOptions &opts,
                             GLPlatform &platform, IReplayDriver **&driver)
 {

@@ -5310,12 +5310,37 @@ RDResult WrappedOpenGL::ContextReplayLog(CaptureState readType, uint32_t startEv
 
   m_StructuredFile = prevFile;
 
+  // mc tag begin
+  auto UpdateActionResEID = [](rdcarray<ActionDescription *> &actions,
+                               rdcarray<ActionResDescription> &res) {
+    size_t index = 0;
+    ActionFlags actionMask = ActionFlags::Drawcall | ActionFlags::Dispatch;
+
+    for(auto action : actions)
+    {
+      if(!action)
+        continue;
+
+      if(!(action->flags & actionMask))
+        continue;
+
+      RDCASSERT(res[index].flags == action->flags);
+      res[index].eventId = action->eventId;
+      index++;
+    }
+  };
+  // mc tag end
+
   if(IsLoading(m_State))
   {
     GetReplay()->WriteFrameRecord().actionList = m_ParentAction.children;
     GetReplay()->WriteFrameRecord().frameInfo.debugMessages = GetDebugMessages();
 
     SetupActionPointers(m_Actions, GetReplay()->WriteFrameRecord().actionList);
+
+    // mc tag begin
+    UpdateActionResEID(m_Actions, m_ActionResStack);
+    // mc tag end
 
     // it's easier to remove duplicate usages here than check it as we go.
     // this means if textures are bound in multiple places in the same action
@@ -5456,6 +5481,50 @@ void WrappedOpenGL::AddUsage(const ActionDescription &a)
   //////////////////////////////
   // Shaders
 
+  // mc tag begin
+  ActionResDescription resDesc = {};
+  resDesc.flags = a.flags;
+  resDesc.eventId = e;
+
+  auto setShaderRes = [&resDesc](size_t index, ResourceId id) {
+    switch(index)
+    {
+      case 0:
+      {
+        resDesc.vs = id;
+        break;
+      };
+      case 1:
+      {
+        resDesc.hs = id;
+        break;
+      };
+      case 2:
+      {
+        resDesc.ds = id;
+        break;
+      };
+      case 3:
+      {
+        resDesc.gs = id;
+        break;
+      };
+      case 4:
+      {
+        resDesc.ps = id;
+        break;
+      };
+      case 5:
+      {
+        resDesc.cs = id;
+        break;
+      };
+      default: break;
+    };
+  };
+
+  // mc tag end
+
   {
     GLRenderState rs;
     rs.FetchState(this);
@@ -5503,6 +5572,15 @@ void WrappedOpenGL::AddUsage(const ActionDescription &a)
         }
       }
     }
+
+    resDesc.vs = m_ResourceManager->GetUnreplacedOriginalID(resDesc.vs);
+    resDesc.hs = m_ResourceManager->GetUnreplacedOriginalID(resDesc.hs);
+    resDesc.ds = m_ResourceManager->GetUnreplacedOriginalID(resDesc.ds);
+    resDesc.gs = m_ResourceManager->GetUnreplacedOriginalID(resDesc.gs);
+    resDesc.ps = m_ResourceManager->GetUnreplacedOriginalID(resDesc.ps);
+    resDesc.cs = m_ResourceManager->GetUnreplacedOriginalID(resDesc.cs);
+
+    m_ActionResStack.push_back(resDesc);
 
     for(size_t i = 0; i < ARRAY_COUNT(refl); i++)
     {

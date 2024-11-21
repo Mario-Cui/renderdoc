@@ -744,7 +744,14 @@ private:
     uint32_t eventCount;             // how many events are in this cmd buffer, for quick skipping
     uint32_t curEventID;             // current event ID while reading or executing
     uint32_t actionCount;            // similar to above
+    // mc tag begin
+    rdcarray<ActionResDescription> actionResStack;
+    // mc tag end
   };
+
+  // mc tag begin
+  rdcarray<ActionResDescription> m_RootActionResStack;
+  // mc tag end
 
   uint64_t m_FakePushSetID = 0;
   VkDescriptorSet MakeFakePushDescSet()
@@ -1137,7 +1144,11 @@ private:
   void AddAction(const ActionDescription &a);
   void AddEvent();
 
-  void AddUsage(VulkanActionTreeNode &actionNode, rdcarray<DebugMessage> &debugMessages);
+  // mc tag begin
+  void AddUsage(VulkanActionTreeNode &actionNode, rdcarray<DebugMessage> &debugMessages,
+                rdcarray<ActionResDescription> &actionResStack);
+  // mc tag end
+
   void AddUsageForBind(VulkanActionTreeNode &actionNode, rdcarray<DebugMessage> &debugMessages,
                        uint32_t bindset, uint32_t bind, ResourceUsage usage);
 
@@ -1449,6 +1460,10 @@ public:
 
     return NULL;
   }
+
+  // mc tag begin
+  rdcarray<ActionResDescription> &GetActionResDesc() { return m_RootActionResStack; }
+  // mc tag end
 
   // Device initialization
 

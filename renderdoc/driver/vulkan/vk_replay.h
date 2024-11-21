@@ -379,6 +379,10 @@ public:
 
   ResourceId GetLiveID(ResourceId id);
 
+  // mc tag begin
+  rdcarray<ActionResDescription> &GetActionRes() override;
+  // mc tag end
+
   rdcarray<GPUCounter> EnumerateCounters();
   CounterDescription DescribeCounter(GPUCounter counterID);
   rdcarray<CounterResult> FetchCounters(const rdcarray<GPUCounter> &counters);

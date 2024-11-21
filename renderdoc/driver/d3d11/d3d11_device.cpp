@@ -1495,9 +1495,34 @@ RDResult WrappedID3D11Device::ReadLogInitialisation(RDCFile *rdc, bool storeStru
   // and in future use this file.
   m_StructuredFile = m_StoredStructuredData;
 
+  // mc tag begin
+  auto UpdateActionResEID = [](rdcarray<ActionDescription *> &actions,
+                               rdcarray<ActionResDescription> &res) {
+    size_t index = 0;
+    ActionFlags actionMask = ActionFlags::Drawcall | ActionFlags::Dispatch | ActionFlags::CmdList;
+
+    for(auto action : actions)
+    {
+      if(!action)
+        continue;
+
+      if(!(action->flags & actionMask))
+        continue;
+
+      RDCASSERT(res[index].flags == action->flags);
+      res[index].eventId = action->eventId;
+      index++;
+    }
+  };
+  // mc tag end
+
   if(!IsStructuredExporting(m_State))
   {
     SetupActionPointers(m_Actions, GetReplay()->WriteFrameRecord().actionList);
+
+    // mc tag begin
+    UpdateActionResEID(m_Actions, GetImmediateContext()->GetActionResDescription());
+    // mc tag end
 
     // propagate any UAV names onto counter buffers
     rdcarray<BufferDescription> counterBuffers;

@@ -137,6 +137,10 @@ public:
 
   virtual ~ReplayProxy();
 
+  // mc tag begin
+  rdcarray<ActionResDescription> &GetActionRes() override { return m_ActionResDesc; }
+  // mc tag end
+
   void InitPreviewWindow();
   void ShutdownPreviewWindow();
   void RefreshPreviewWindow();
@@ -740,4 +744,8 @@ private:
   D3D12Pipe::State *m_D3D12PipelineState = NULL;
   GLPipe::State *m_GLPipelineState = NULL;
   VKPipe::State *m_VulkanPipelineState = NULL;
+
+  // mc tag begin
+  rdcarray<ActionResDescription> m_ActionResDesc;
+  // mc tag end
 };

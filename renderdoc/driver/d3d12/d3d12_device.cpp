@@ -5180,6 +5180,27 @@ RDResult WrappedID3D12Device::ReadLogInitialisation(RDCFile *rdc, bool storeStru
   // and in future use this file.
   m_StructuredFile = m_StoredStructuredData;
 
+  // mc tag begin
+  auto UpdateActionResEID = [](rdcarray<ActionDescription *> &actions,
+                               rdcarray<ActionResDescription> &res) {
+    size_t index = 0;
+    ActionFlags actionMask = ActionFlags::Drawcall | ActionFlags::Dispatch;
+
+    for(auto action : actions)
+    {
+      if(!action)
+        continue;
+
+      if(!(action->flags & actionMask))
+        continue;
+
+      RDCASSERT(res[index].flags == action->flags);
+      res[index].eventId = action->eventId;
+      index++;
+    }
+  };
+  // mc tag end
+
   if(!IsStructuredExporting(m_State))
   {
     GetReplay()->WriteFrameRecord().actionList = m_Queue->GetParentAction().Bake();
@@ -5187,6 +5208,10 @@ RDResult WrappedID3D12Device::ReadLogInitialisation(RDCFile *rdc, bool storeStru
     m_Queue->GetParentAction().children.clear();
 
     SetupActionPointers(m_Actions, GetReplay()->WriteFrameRecord().actionList);
+
+    // mc tag begin
+    UpdateActionResEID(m_Actions, GetQueue()->GetCommandData()->GetActionResDesc());
+    // mc tag end
   }
 
   {

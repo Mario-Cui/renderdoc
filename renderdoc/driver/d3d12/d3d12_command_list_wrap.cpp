@@ -3763,7 +3763,7 @@ void WrappedID3D12GraphicsCommandList::FinaliseExecuteIndirectEvents(BakedCmdLis
             // assign the action's EID
             eid = curAction.eventId;
 
-            m_Cmd->AddUsage(state, actions[idx]);
+            m_Cmd->AddUsage(state, actions[idx], info.actionResStack);
 
             // advance
             idx++;
@@ -3796,7 +3796,7 @@ void WrappedID3D12GraphicsCommandList::FinaliseExecuteIndirectEvents(BakedCmdLis
             // assign the action's EID
             eid = curAction.eventId;
 
-            m_Cmd->AddUsage(state, actions[idx]);
+            m_Cmd->AddUsage(state, actions[idx], info.actionResStack);
 
             // advance
             idx++;
@@ -3826,7 +3826,7 @@ void WrappedID3D12GraphicsCommandList::FinaliseExecuteIndirectEvents(BakedCmdLis
             // assign the action's EID
             eid = curAction.eventId;
 
-            m_Cmd->AddUsage(state, actions[idx]);
+            m_Cmd->AddUsage(state, actions[idx], info.actionResStack);
 
             // advance
             idx++;
@@ -3857,7 +3857,7 @@ void WrappedID3D12GraphicsCommandList::FinaliseExecuteIndirectEvents(BakedCmdLis
             // assign the action's EID
             eid = curAction.eventId;
 
-            m_Cmd->AddUsage(state, actions[idx]);
+            m_Cmd->AddUsage(state, actions[idx], info.actionResStack);
 
             // advance
             idx++;
@@ -3888,7 +3888,7 @@ void WrappedID3D12GraphicsCommandList::FinaliseExecuteIndirectEvents(BakedCmdLis
             // assign the action's EID
             eid = curAction.eventId;
 
-            m_Cmd->AddUsage(state, actions[idx]);
+            m_Cmd->AddUsage(state, actions[idx], info.actionResStack);
 
             // advance
             idx++;

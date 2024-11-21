@@ -230,6 +230,10 @@ struct BakedCmdListInfo
   uint32_t eventCount;                   // how many events are in this cmd list, for quick skipping
   uint32_t curEventID;                   // current event ID while reading or executing
   uint32_t actionCount;                  // similar to above
+
+  // mc tag begin
+  rdcarray<ActionResDescription> actionResStack;
+  // mc tag end
 };
 
 class WrappedID3D12Device;
@@ -344,6 +348,10 @@ struct D3D12CommandData
 
   rdcarray<DebugMessage> m_EventMessages;
 
+  // mc tag begin
+  rdcarray<ActionResDescription> m_RootActionResStack;
+  // mc tag end
+
   std::map<ResourceId, ID3D12GraphicsCommandListX *> m_RerecordCmds;
   rdcarray<ID3D12GraphicsCommandListX *> m_RerecordCmdList;
 
@@ -386,6 +394,10 @@ struct D3D12CommandData
     return m_RootActionStack;
   }
 
+  // mc tag begin
+  rdcarray<ActionResDescription> &GetActionResDesc() { return m_RootActionResStack; }
+  // mc tag end
+
   void GetIndirectBuffer(size_t size, ID3D12Resource **buf, uint64_t *offs);
 
   // util function to handle fetching the right eventId, calling any
@@ -401,7 +413,8 @@ struct D3D12CommandData
 
   void AddAction(const ActionDescription &a);
   void AddEvent();
-  void AddUsage(const D3D12RenderState &state, D3D12ActionTreeNode &actionNode);
+  void AddUsage(const D3D12RenderState &state, D3D12ActionTreeNode &actionNode,
+                rdcarray<ActionResDescription> &actionResStack);
 
   void AddUsageForBindInRootSig(const D3D12RenderState &state, D3D12ActionTreeNode &actionNode,
                                 const D3D12RenderState::RootSignature *rootsig,

@@ -175,6 +175,7 @@
     <ClInclude Include="android\jdwp.h" />
     <ClInclude Include="api\app\renderdoc_app.h" />
     <ClInclude Include="api\replay\apidefs.h" />
+    <ClInclude Include="api\replay\external_config.h" />
     <ClInclude Include="api\replay\rdcdatetime.h" />
     <ClInclude Include="api\replay\capture_options.h" />
     <ClInclude Include="api\replay\common_pipestate.h" />

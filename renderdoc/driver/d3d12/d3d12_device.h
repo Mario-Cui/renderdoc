@@ -88,6 +88,12 @@ struct QueueReadbackData
   WrappedID3D12Device *device;
 };
 
+struct D3D12PerfCallbackData
+{
+  std::function<void()> beginPerf;
+  std::function<void()> endPerf;
+};
+
 class WrappedID3D12Device;
 class WrappedID3D12Resource;
 class WrappedID3D12PipelineState;
@@ -1077,7 +1083,8 @@ public:
                                          const rdcarray<DynamicDescriptorCopy> &DescriptorCopies);
 
   RDResult ReadLogInitialisation(RDCFile *rdc, bool storeStructuredBuffers);
-  void ReplayLog(uint32_t startEventID, uint32_t endEventID, ReplayLogType replayType);
+  void ReplayLog(uint32_t startEventID, uint32_t endEventID, ReplayLogType replayType,
+                 const D3D12PerfCallbackData *perfCbData = nullptr);
   void ReplayDraw(ID3D12GraphicsCommandListX *cmd, const ActionDescription &action);
 
   void SetStructuredExport(uint64_t sectionVersion)

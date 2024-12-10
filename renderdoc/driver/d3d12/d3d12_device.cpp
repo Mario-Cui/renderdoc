@@ -5283,7 +5283,7 @@ RDResult WrappedID3D12Device::ReadLogInitialisation(RDCFile *rdc, bool storeStru
 }
 
 void WrappedID3D12Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
-                                    ReplayLogType replayType)
+                                    ReplayLogType replayType, const D3D12PerfCallbackData *perfCbData)
 {
   bool partial = true;
 
@@ -5371,6 +5371,11 @@ void WrappedID3D12Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
   }
 
   {
+    if(nullptr != perfCbData)
+    {
+      perfCbData->beginPerf();
+    }
+
     D3D12CommandData &cmd = *m_Queue->GetCommandData();
 
     if(!partial)
@@ -5429,6 +5434,11 @@ void WrappedID3D12Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
       ExecuteLists();
 
       cmd.m_OutsideCmdList = NULL;
+    }
+
+    if(nullptr != perfCbData)
+    {
+      perfCbData->endPerf();
     }
 
     if(HasFatalError())

@@ -636,6 +636,7 @@ public:
 
   // mc tag begin
   rdcarray<ActionResDescription> &GetActionResDesc() { return m_ActionResStack; }
+  uint32_t GetMaxEID() { return m_Events.back().eventId; }
   // mc tag end
 
   void UseUnusedSupportedFunction(const char *name);

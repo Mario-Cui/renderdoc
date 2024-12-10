@@ -4492,7 +4492,8 @@ VkResourceRecord *WrappedVulkan::RegisterSurface(WindowingSystem system, void *h
   return (VkResourceRecord *)new PackedWindowHandle(system, handle);
 }
 
-void WrappedVulkan::ReplayLog(uint32_t startEventID, uint32_t endEventID, ReplayLogType replayType)
+void WrappedVulkan::ReplayLog(uint32_t startEventID, uint32_t endEventID, ReplayLogType replayType,
+                              const VKPerfCallbackData *perfCb)
 {
   bool partial = true;
 
@@ -4531,6 +4532,11 @@ void WrappedVulkan::ReplayLog(uint32_t startEventID, uint32_t endEventID, Replay
     VkResult vkr = VK_SUCCESS;
 
     rdcarray<CommandBufferNode> cacheNodes = m_Partial.partialStack;
+
+    if(nullptr != perfCb)
+    {
+      perfCb->beginPerf();
+    }
 
     // we'll need our own command buffer if we're replaying just a subsection
     // of events within a single command buffer record - always if it's only
@@ -4670,6 +4676,11 @@ void WrappedVulkan::ReplayLog(uint32_t startEventID, uint32_t endEventID, Replay
       SubmitCmds();
 
       m_OutsideCmdBuffer = VK_NULL_HANDLE;
+    }
+
+    if(nullptr != perfCb)
+    {
+      perfCb->endPerf();
     }
 
     if(Vulkan_Debug_SingleSubmitFlushing())

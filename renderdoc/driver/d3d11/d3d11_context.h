@@ -343,6 +343,7 @@ public:
   void MarkResourceReferenced(ResourceId id, FrameRefType refType);
   // mc tag begin
   rdcarray<ActionResDescription> &GetActionResDescription() { return m_ActionResStack; }
+  uint32_t GetMaxEID() { return m_Events.back().eventId; }
   // mc tag end
   rdcarray<EventUsage> GetUsage(ResourceId id) { return m_ResourceUses[id]; }
   void ClearMaps();

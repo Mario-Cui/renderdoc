@@ -26,6 +26,8 @@
 
 #include "nv_counter_enumerator.h"
 
+#include "api/replay/external_config.h"
+
 #include "driver/d3d11/d3d11_context.h"
 #include "driver/d3d11/d3d11_device.h"
 #include "driver/d3d11/d3d11_replay.h"
@@ -270,8 +272,11 @@ rdcarray<CounterResult> NVD3D11Counters::FetchCounters(const rdcarray<GPUCounter
 
   ID3D11Device *d3dDevice = device->GetReal();
   ID3D11DeviceContext *d3dImmediateContext = immediateContext->GetReal();
+  uint32_t maxEID = immediateContext->GetMaxEID();
+  const ExternalConfigParams *extConfig = RENDERDOC_GetExternalConfig();
 
-  uint32_t maxNumRanges;
+  uint32_t maxNumRanges = 128;
+  if(extConfig->apiPerfParams.rangeType != PerfRangeType::PerFrame)
   {
     uint32_t numEvents = 0u;
     // replay the events to determine how many profile-able events there are
@@ -333,9 +338,19 @@ rdcarray<CounterResult> NVD3D11Counters::FetchCounters(const rdcarray<GPUCounter
       break;    // Failure
     }
 
-    uint32_t eventStartID = 0u;
-    Impl::RecurseProfileEvents(replay, device, rangeProfiler, eventStartID,
-                               immediateContext->GetRootDraw());
+    if(extConfig->apiPerfParams.rangeType == PerfRangeType::PerFrame)
+    {
+      device->ReplayLog(0, 1, eReplay_WithoutDraw);
+      rangeProfiler.PushRange("frame_0");
+      device->ReplayLog(1, maxEID, eReplay_Full);
+      rangeProfiler.PopRange();
+    }
+    else
+    {
+      uint32_t eventStartID = 0u;
+      Impl::RecurseProfileEvents(replay, device, rangeProfiler, eventStartID,
+                                 immediateContext->GetRootDraw());
+    }
 
     if(!rangeProfiler.EndPass())
     {

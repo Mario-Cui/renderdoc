@@ -281,6 +281,12 @@ struct UserDebugUtilsCallbackData
   VkDebugUtilsMessengerEXT realObject;
 };
 
+struct VKPerfCallbackData
+{
+  std::function<void()> beginPerf;
+  std::function<void()> endPerf;
+};
+
 class WrappedVulkan : public IFrameCapturer
 {
 private:
@@ -1244,7 +1250,8 @@ public:
     m_State = CaptureState::StructuredExport;
   }
   void Shutdown();
-  void ReplayLog(uint32_t startEventID, uint32_t endEventID, ReplayLogType replayType);
+  void ReplayLog(uint32_t startEventID, uint32_t endEventID, ReplayLogType replayType,
+                 const VKPerfCallbackData *perfCb = nullptr);
   void ReplayDraw(VkCommandBuffer cmd, const ActionDescription &action);
   RDResult ReadLogInitialisation(RDCFile *rdc, bool storeStructuredBuffers);
 

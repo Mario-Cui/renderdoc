@@ -26,6 +26,8 @@
 
 #include "nv_counter_enumerator.h"
 
+#include "api/replay/external_config.h"
+
 #include "driver/vulkan/vk_core.h"
 #include "driver/vulkan/vk_replay.h"
 
@@ -310,7 +312,11 @@ rdcarray<CounterResult> NVVulkanCounters::FetchCounters(const rdcarray<GPUCounte
 
   uint32_t maxEID = driver->GetMaxEID();
 
-  uint32_t maxNumRanges = 0;
+  const ExternalConfigParams *extConfig = RENDERDOC_GetExternalConfig();
+
+  uint32_t maxNumRanges = 128;
+
+  if(extConfig->apiPerfParams.rangeType != PerfRangeType::PerFrame)
   {
     // replay the events to determine how many profile-able events there are
     FrameRecord frameRecord = driver->GetReplay()->GetFrameRecord();
@@ -326,6 +332,20 @@ rdcarray<CounterResult> NVVulkanCounters::FetchCounters(const rdcarray<GPUCounte
   sessionOptions.numTraceBuffers = 5;
 
   nv::perf::profiler::RangeProfilerVulkan rangeProfiler;
+
+  ResourceId originId = driver->GetResourceManager()->GetOriginalID(GetWrapped(driver->GetQ())->id);
+  rdcstr frameRangeName = "Queue_" + ToStr(originId.GetId());
+
+  VKPerfCallbackData perfCbData = {};
+
+  if(extConfig->apiPerfParams.rangeType == PerfRangeType::PerFrame)
+  {
+    perfCbData.beginPerf = [&frameRangeName, &rangeProfiler]() {
+      rangeProfiler.PushRange(frameRangeName.c_str());
+    };
+
+    perfCbData.endPerf = [&rangeProfiler]() { rangeProfiler.PopRange(); };
+  }
 
   rdcarray<CounterResult> results;
   // TODO: For each Vulkan queue
@@ -373,7 +393,11 @@ rdcarray<CounterResult> NVVulkanCounters::FetchCounters(const rdcarray<GPUCounte
       return {};    // Failure
     }
 
-    VulkanNvidiaActionCallback actionCallback(driver);
+    std::unique_ptr<VulkanNvidiaActionCallback> actionCallback = nullptr;
+    if(extConfig->apiPerfParams.rangeType != PerfRangeType::PerFrame)
+    {
+      actionCallback = std::make_unique<VulkanNvidiaActionCallback>(driver);
+    }
 
     std::vector<uint8_t> counterDataImage;
     for(size_t replayPass = 0;; ++replayPass)
@@ -387,7 +411,17 @@ rdcarray<CounterResult> NVVulkanCounters::FetchCounters(const rdcarray<GPUCounte
 
       // replay the events to perform all the queries
       uint32_t eventStartID = 0;
-      driver->ReplayLog(eventStartID, maxEID, eReplay_Full);
+
+      ObjDisp(driver->GetQ())->QueueWaitIdle(Unwrap(driver->GetQ()));
+
+      if(extConfig->apiPerfParams.rangeType == PerfRangeType::PerFrame)
+      {
+        driver->ReplayLog(eventStartID, maxEID, eReplay_Full, &perfCbData);
+      }
+      else
+      {
+        driver->ReplayLog(eventStartID, maxEID, eReplay_Full);
+      }
 
       if(!rangeProfiler.EndPass())
       {

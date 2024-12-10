@@ -24,9 +24,9 @@
 
 #include "nv_gl_counters.h"
 
-#include "nv_counter_enumerator.h"
-
+#include "api/replay/external_config.h"
 #include "driver/gl/gl_driver.h"
+#include "nv_counter_enumerator.h"
 
 #include <iostream>
 #include "NvPerfOpenGL.h"
@@ -262,7 +262,10 @@ rdcarray<CounterResult> NVGLCounters::FetchCounters(const rdcarray<GPUCounter> &
   nv::perf::UserLogEnableCustom(NVGLCounters::Impl::LogNvPerfAsDebugMessage, (void *)driver);
   auto logGuard = nv::perf::ScopeExitGuard([]() { nv::perf::UserLogDisableCustom(); });
 
-  uint32_t maxNumRanges;
+  const ExternalConfigParams *extConfig = RENDERDOC_GetExternalConfig();
+  uint32_t maxEID = driver->GetMaxEID();
+  uint32_t maxNumRanges = 128;
+  if(extConfig->apiPerfParams.rangeType != PerfRangeType::PerFrame)
   {
     uint32_t numEvents = 0u;
     // replay the events to determine how many profile-able events there are
@@ -323,8 +326,21 @@ rdcarray<CounterResult> NVGLCounters::FetchCounters(const rdcarray<GPUCounter> &
       break;    // Failure
     }
 
-    uint32_t eventStartID = 0u;
-    Impl::RecurseProfileEvents(driver, rangeProfiler, eventStartID, driver->GetRootAction());
+    if(extConfig->apiPerfParams.rangeType == PerfRangeType::PerFrame)
+    {
+      driver->ReplayLog(0, 1, eReplay_WithoutDraw);
+
+      rangeProfiler.PushRange("frame_0");
+
+      driver->ReplayLog(1, maxEID, eReplay_Full);
+
+      rangeProfiler.PopRange();
+    }
+    else
+    {
+      uint32_t eventStartID = 0u;
+      Impl::RecurseProfileEvents(driver, rangeProfiler, eventStartID, driver->GetRootAction());
+    }
 
     if(!rangeProfiler.EndPass())
     {

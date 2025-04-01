@@ -189,8 +189,16 @@ public:
   uint32_t PickVertex(uint32_t eventId, int32_t width, int32_t height, const MeshDisplay &cfg,
                       uint32_t x, uint32_t y);
 
+  // mc tag begin
+  rdcarray<ActionResDescription> &GetActionRes() override { return m_ActionResDesc; }
+  // mc tag end
+
 private:
   virtual ~DummyDriver();
+
+  // mc tag begin
+  rdcarray<ActionResDescription> m_ActionResDesc;
+  // mc tag end
 
   rdcarray<ShaderReflection *> m_Shaders;
   SDFile *m_SDFile;

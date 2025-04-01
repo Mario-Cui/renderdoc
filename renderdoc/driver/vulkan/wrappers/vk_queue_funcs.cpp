@@ -338,6 +338,14 @@ void WrappedVulkan::ReplayQueueSubmit(VkQueue queue, VkSubmitInfo2 submitInfo, r
       CommandBufferNode *rebaseNode = BuildSubmitTree(cmd, m_RootEventID);
       m_Partial.commandTree.push_back(rebaseNode);
 
+      // mc tag begin
+      std::sort(cmdBufInfo.actionResStack.begin(), cmdBufInfo.actionResStack.end());
+      for(auto &actionRes : cmdBufInfo.actionResStack)
+      {
+        m_RootActionResStack.push_back(actionRes);
+      }
+      // mc tag end
+
       // insert the baked command buffer in-line into this list of notes, assigning new event
       // and drawIDs
       InsertActionsAndRefreshIDs(cmdBufInfo);

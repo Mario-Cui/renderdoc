@@ -1808,6 +1808,44 @@ for very coarse bucketing of actions into similar passes by their outputs.
 
 DECLARE_REFLECTION_STRUCT(ActionDescription);
 
+// mc tag begin
+DOCUMENT("Give action res .");
+struct ActionResDescription
+{
+  DOCUMENT("");
+  ActionResDescription() = default;
+  ActionResDescription(const ActionResDescription &) = default;
+  ActionResDescription &operator=(const ActionResDescription &) = default;
+
+  bool operator==(const ActionResDescription &o) const { return false; }
+  bool operator!=(const ActionResDescription &o) const { return !(*this == o); }
+  bool operator<(const ActionResDescription &o) const { return eventId < o.eventId; }
+
+  DOCUMENT("A set of :class:`ActionFlags` properties describing what kind of action this is.");
+  ActionFlags flags = ActionFlags::NoFlags;
+
+  DOCUMENT("The :data:`eventId <APIEvent.eventId>` that actually produced the action.");
+  uint32_t eventId;
+  DOCUMENT("vs shader resId");
+  ResourceId vs;
+  DOCUMENT("ds shader resId");
+
+  ResourceId ds;
+  DOCUMENT("hs shader resId");
+
+  ResourceId hs;
+  DOCUMENT("gs shader resId");
+
+  ResourceId gs;
+  DOCUMENT("ps shader resId");
+
+  ResourceId ps;
+  DOCUMENT("cs shader resId");
+  ResourceId cs;
+};
+DECLARE_REFLECTION_STRUCT(ActionResDescription);
+// mc tag end
+
 DOCUMENT("Gives some API-specific information about the capture.");
 struct APIProperties
 {

@@ -2,7 +2,7 @@
 #define NVPERF_OPENGL_HOST_H
 
 /*
- * Copyright 2014-2022  NVIDIA Corporation.  All rights reserved.
+ * Copyright 2014-2024 NVIDIA Corporation.  All rights reserved.
  *
  * NOTICE TO USER:
  *

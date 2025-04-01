@@ -719,6 +719,14 @@ void WrappedID3D12PipelineState::ProcessDescriptorAccess()
     return;
   m_AccessProcessed = true;
 
+  bool bindlessResourceUseActive = false;
+
+  if(usedSig.Flags & (D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED |
+                      D3D12_ROOT_SIGNATURE_FLAG_SAMPLER_HEAP_DIRECTLY_INDEXED))
+  {
+    bindlessResourceUseActive = true;
+  }
+
   for(ShaderEntry *shad : {VS(), HS(), DS(), GS(), PS(), AS(), MS(), CS()})
   {
     if(!shad)
@@ -755,7 +763,7 @@ void WrappedID3D12PipelineState::ProcessDescriptorAccess()
       const ConstantBlock &bind = refl.constantBlocks[i];
 
       // arrayed descriptors will be handled with bindless feedback
-      if(bind.bindArraySize > 1)
+      if((bind.bindArraySize > 1) && bindlessResourceUseActive)
         continue;
 
       access.type = DescriptorType::ConstantBuffer;
@@ -774,7 +782,7 @@ void WrappedID3D12PipelineState::ProcessDescriptorAccess()
       const ShaderSampler &bind = refl.samplers[i];
 
       // arrayed descriptors will be handled with bindless feedback
-      if(bind.bindArraySize > 1)
+      if((bind.bindArraySize > 1) && bindlessResourceUseActive)
         continue;
 
       access.type = DescriptorType::Sampler;
@@ -793,7 +801,7 @@ void WrappedID3D12PipelineState::ProcessDescriptorAccess()
       const ShaderResource &bind = refl.readOnlyResources[i];
 
       // arrayed descriptors will be handled with bindless feedback
-      if(bind.bindArraySize > 1)
+      if((bind.bindArraySize > 1) && bindlessResourceUseActive)
         continue;
 
       access.type = refl.readOnlyResources[i].descriptorType;
@@ -812,7 +820,7 @@ void WrappedID3D12PipelineState::ProcessDescriptorAccess()
       const ShaderResource &bind = refl.readWriteResources[i];
 
       // arrayed descriptors will be handled with bindless feedback
-      if(bind.bindArraySize > 1)
+      if((bind.bindArraySize > 1) && bindlessResourceUseActive)
         continue;
 
       access.type = refl.readWriteResources[i].descriptorType;

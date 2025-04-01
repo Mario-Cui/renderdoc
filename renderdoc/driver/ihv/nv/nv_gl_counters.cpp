@@ -24,10 +24,11 @@
 
 #include "nv_gl_counters.h"
 
+#include "api/replay/external_config.h"
+#include "driver/gl/gl_driver.h"
 #include "nv_counter_enumerator.h"
 
-#include "driver/gl/gl_driver.h"
-
+#include <iostream>
 #include "NvPerfOpenGL.h"
 #include "NvPerfRangeProfilerOpenGL.h"
 #include "NvPerfScopeExitGuard.h"
@@ -40,18 +41,27 @@ struct NVGLCounters::Impl
   static void LogNvPerfAsDebugMessage(const char *pPrefix, const char *pDate, const char *pTime,
                                       const char *pFunctionName, const char *pMessage, void *pData)
   {
-    WrappedOpenGL *driver = (WrappedOpenGL *)pData;
     rdcstr message =
         StringFormat::Fmt("NVIDIA Nsight Perf SDK\n%s%s\n%s", pPrefix, pFunctionName, pMessage);
+#if USE_FOR_CMD
+    WrappedOpenGL *driver = (WrappedOpenGL *)pData;
     driver->AddDebugMessage(MessageCategory::Miscellaneous, MessageSeverity::High,
                             MessageSource::RuntimeWarning, message);
+#else
+
+    std::cout << message.c_str() << std::endl;
+#endif
   }
 
   static void LogDebugMessage(const char *pFunctionName, const char *pMessage, WrappedOpenGL *driver)
   {
     rdcstr message = StringFormat::Fmt("NVIDIA Nsight Perf SDK\n%s\n%s", pFunctionName, pMessage);
+#if USE_FOR_CMD
     driver->AddDebugMessage(MessageCategory::Miscellaneous, MessageSeverity::High,
                             MessageSource::RuntimeWarning, message);
+#else
+    std::cout << message.c_str() << std::endl;
+#endif
   }
 
   Impl() : CounterEnumerator(NULL) {}
@@ -120,9 +130,9 @@ struct NVGLCounters::Impl
     }
 
     nv::perf::MetricsEvaluator metricsEvaluator(pMetricsEvaluator, std::move(scratchBuffer));
-
+    size_t deviceIndex = nv::perf::OpenGLGetNvperfDeviceIndex();
     CounterEnumerator = new NVCounterEnumerator;
-    if(!CounterEnumerator->Init(std::move(metricsEvaluator)))
+    if(!CounterEnumerator->Init(std::move(metricsEvaluator), deviceIdentifiers, deviceIndex))
     {
       Impl::LogDebugMessage("NVGLCounters::Impl::TryInitializePerfSDK",
                             "NvPerf could not initialize metrics evaluator", driver);
@@ -252,7 +262,10 @@ rdcarray<CounterResult> NVGLCounters::FetchCounters(const rdcarray<GPUCounter> &
   nv::perf::UserLogEnableCustom(NVGLCounters::Impl::LogNvPerfAsDebugMessage, (void *)driver);
   auto logGuard = nv::perf::ScopeExitGuard([]() { nv::perf::UserLogDisableCustom(); });
 
-  uint32_t maxNumRanges;
+  const ExternalConfigParams *extConfig = RENDERDOC_GetExternalConfig();
+  uint32_t maxEID = driver->GetMaxEID();
+  uint32_t maxNumRanges = 128;
+  if(extConfig->apiPerfParams.rangeType != PerfRangeType::PerFrame)
   {
     uint32_t numEvents = 0u;
     // replay the events to determine how many profile-able events there are
@@ -262,8 +275,8 @@ rdcarray<CounterResult> NVGLCounters::FetchCounters(const rdcarray<GPUCounter> &
 
   nv::perf::profiler::SessionOptions sessionOptions = {};
   sessionOptions.maxNumRanges = maxNumRanges;
-  sessionOptions.avgRangeNameLength = 16;
-  sessionOptions.numTraceBuffers = 2;
+  sessionOptions.avgRangeNameLength = 128;
+  sessionOptions.numTraceBuffers = 5;
 
   nv::perf::profiler::RangeProfilerOpenGL rangeProfiler;
 
@@ -313,8 +326,21 @@ rdcarray<CounterResult> NVGLCounters::FetchCounters(const rdcarray<GPUCounter> &
       break;    // Failure
     }
 
-    uint32_t eventStartID = 0u;
-    Impl::RecurseProfileEvents(driver, rangeProfiler, eventStartID, driver->GetRootAction());
+    if(extConfig->apiPerfParams.rangeType == PerfRangeType::PerFrame)
+    {
+      driver->ReplayLog(0, 1, eReplay_WithoutDraw);
+
+      rangeProfiler.PushRange("frame_0");
+
+      driver->ReplayLog(1, maxEID, eReplay_Full);
+
+      rangeProfiler.PopRange();
+    }
+    else
+    {
+      uint32_t eventStartID = 0u;
+      Impl::RecurseProfileEvents(driver, rangeProfiler, eventStartID, driver->GetRootAction());
+    }
 
     if(!rangeProfiler.EndPass())
     {
@@ -331,7 +357,7 @@ rdcarray<CounterResult> NVGLCounters::FetchCounters(const rdcarray<GPUCounter> &
       break;    // Failure
     }
 
-    if(decodeResult.allPassesDecoded)
+    if(decodeResult.allStatisticalSamplesCollected)
     {
       counterDataImage = std::move(decodeResult.counterDataImage);
       break;    // Success!
@@ -339,9 +365,9 @@ rdcarray<CounterResult> NVGLCounters::FetchCounters(const rdcarray<GPUCounter> &
 
     if(replayPass >= maxNumReplayPasses - 1)
     {
-      Impl::LogDebugMessage("NVGLCounters::FetchCounters",
-                            "NvPerf exceeded the maximum expected number of replay passes", driver);
-      break;    // Failure
+      // Impl::LogDebugMessage("NVGLCounters::FetchCounters",
+      //                       "NvPerf exceeded the maximum expected number of replay passes", driver);
+      // break;    // Failure
     }
   }
 

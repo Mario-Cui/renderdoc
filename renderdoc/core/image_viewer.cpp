@@ -82,6 +82,8 @@ public:
     }
   }
 
+  rdcarray<ActionResDescription> &GetActionRes() override { return m_ActionResDesc; }
+
   bool IsRemoteProxy() { return true; }
   RDResult FatalErrorCheck()
   {
@@ -414,6 +416,11 @@ private:
   // if we remapped the texture for display, this contains the real data to return from
   // GetTextureData()
   rdcarray<bytebuf> m_RealTexData;
+
+  // just compile ok
+  // mc tag begin
+  rdcarray<ActionResDescription> m_ActionResDesc;
+  // mc tag end
 };
 
 RDResult IMG_CreateReplayDevice(RDCFile *rdc, IReplayDriver **driver)

@@ -1,5 +1,5 @@
 /*
-* Copyright 2014-2022 NVIDIA Corporation.  All rights reserved.
+* Copyright 2014-2024 NVIDIA Corporation.  All rights reserved.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -127,7 +127,7 @@ namespace nv { namespace perf {
         NVPA_Status nvpaStatus = NVPW_D3D11_LoadDriver(&loadDriverParams);
         if (nvpaStatus)
         {
-            NV_PERF_LOG_ERR(10, "NVPW_D3D11_LoadDriver failed\n");
+            NV_PERF_LOG_ERR(10, "NVPW_D3D11_LoadDriver failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
             return false;
         }
         return true;
@@ -141,6 +141,7 @@ namespace nv { namespace perf {
         NVPA_Status nvpaStatus = NVPW_D3D11_Device_GetDeviceIndex(&getDeviceIndexParams);
         if (nvpaStatus)
         {
+            NV_PERF_LOG_ERR(20, "NVPW_D3D11_Device_GetDeviceIndex failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
             return ~size_t(0);
         }
 
@@ -183,7 +184,7 @@ namespace nv { namespace perf {
         NVPA_Status nvpaStatus = NVPW_D3D11_MetricsEvaluator_CalculateScratchBufferSize(&calculateScratchBufferSizeParams);
         if (nvpaStatus)
         {
-            NV_PERF_LOG_ERR(20, "NVPW_D3D11_MetricsEvaluator_CalculateScratchBufferSize failed\n");
+            NV_PERF_LOG_ERR(20, "NVPW_D3D11_MetricsEvaluator_CalculateScratchBufferSize failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
             return 0;
         }
         return calculateScratchBufferSizeParams.scratchBufferSize;
@@ -198,7 +199,7 @@ namespace nv { namespace perf {
         NVPA_Status nvpaStatus = NVPW_D3D11_MetricsEvaluator_Initialize(&initializeParams);
         if (nvpaStatus)
         {
-            NV_PERF_LOG_ERR(20, "NVPW_D3D11_MetricsEvaluator_Initialize failed\n");
+            NV_PERF_LOG_ERR(20, "NVPW_D3D11_MetricsEvaluator_Initialize failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
             return nullptr;
         }
         return initializeParams.pMetricsEvaluator;
@@ -216,7 +217,7 @@ namespace nv { namespace perf { namespace profiler {
         NVPA_Status nvpaStatus = NVPW_D3D11_RawMetricsConfig_Create(&configParams);
         if (nvpaStatus)
         {
-            NV_PERF_LOG_ERR(20, "NVPW_D3D11_RawMetricsConfig_Create failed\n");
+            NV_PERF_LOG_ERR(20, "NVPW_D3D11_RawMetricsConfig_Create failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
             return nullptr;
         }
 
@@ -237,7 +238,7 @@ namespace nv { namespace perf { namespace profiler {
         NVPA_Status nvpaStatus = NVPW_D3D11_Profiler_IsGpuSupported(&params);
         if (nvpaStatus)
         {
-            NV_PERF_LOG_ERR(10, "NVPW_D3D11_Profiler_IsGpuSupported failed on %ls\n", D3D11GetDeviceName(pDevice).c_str());
+            NV_PERF_LOG_ERR(10, "NVPW_D3D11_Profiler_IsGpuSupported failed on %ls, nvpaStatus = %s\n", D3D11GetDeviceName(pDevice).c_str(), FormatStatus(nvpaStatus).c_str());
             return false;
         }
 

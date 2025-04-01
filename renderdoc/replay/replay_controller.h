@@ -247,7 +247,9 @@ public:
   void Shutdown();
 
   bool FatalErrorCheck();
-
+  // mc tag begin
+  rdcarray<ActionResDescription> &GetActionRes() override;
+  // mc tag end
 private:
   virtual ~ReplayController();
   RDResult PostCreateInit(IReplayDriver *device, RDCFile *rdc);

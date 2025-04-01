@@ -1,5 +1,5 @@
 /*
-* Copyright 2014-2022 NVIDIA Corporation.  All rights reserved.
+* Copyright 2014-2024 NVIDIA Corporation.  All rights reserved.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -39,7 +39,7 @@ namespace nv { namespace perf {
         NVPA_Status nvpaStatus = NVPW_Device_GetNames(&getNamesParams);
         if (nvpaStatus)
         {
-            NV_PERF_LOG_ERR(10, "NVPW_Device_GetNames failed\n");
+            NV_PERF_LOG_ERR(10, "NVPW_Device_GetNames failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
             return {};
         }
 
@@ -57,7 +57,12 @@ namespace nv { namespace perf {
         NVPA_Status nvpaStatus = NVPW_Device_GetClockStatus(&getClockStatusParams);
         if (nvpaStatus)
         {
-            NV_PERF_LOG_ERR(10, "NVPW_Device_GetClockStatus() failed on %s\n", GetDeviceIdentifiers(nvperfDeviceIndex).pDeviceName);
+#ifdef __aarch64__
+            uint32_t level = 100;
+#else
+            uint32_t level = 10;
+#endif
+            NV_PERF_LOG_ERR(level, "NVPW_Device_GetClockStatus() failed on %s, nvpaStatus = %s\n", GetDeviceIdentifiers(nvperfDeviceIndex).pDeviceName, FormatStatus(nvpaStatus).c_str());
             return NVPW_DEVICE_CLOCK_STATUS_UNKNOWN;
         }
         return getClockStatusParams.clockStatus;
@@ -82,7 +87,12 @@ namespace nv { namespace perf {
         NVPA_Status nvpaStatus = NVPW_Device_SetClockSetting(&setClockSettingParams);
         if (nvpaStatus)
         {
-            NV_PERF_LOG_ERR(10, "NVPW_Device_SetClockSetting( %s ) failed on %s\n", ToCString(clockSetting), GetDeviceIdentifiers(nvperfDeviceIndex).pDeviceName);
+#ifdef __aarch64__
+            uint32_t level = 100;
+#else
+            uint32_t level = 10;
+#endif
+            NV_PERF_LOG_ERR(level, "NVPW_Device_SetClockSetting( %s ) failed on %s, nvpaStatus = %s\n", ToCString(clockSetting), GetDeviceIdentifiers(nvperfDeviceIndex).pDeviceName, FormatStatus(nvpaStatus).c_str());
             return false;
         }
         return true;

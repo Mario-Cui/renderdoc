@@ -1,5 +1,5 @@
 /*
-* Copyright 2014-2022 NVIDIA Corporation.  All rights reserved.
+* Copyright 2014-2024 NVIDIA Corporation.  All rights reserved.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -91,10 +91,10 @@ namespace nv { namespace perf {
             {
                 NVPW_MetricsEvaluator_Destroy_Params destroyParams = { NVPW_MetricsEvaluator_Destroy_Params_STRUCT_SIZE };
                 destroyParams.pMetricsEvaluator = m_pMetricsEvaluator;
-                NVPA_Status status = NVPW_MetricsEvaluator_Destroy(&destroyParams);
-                if (status != NVPA_STATUS_SUCCESS)
+                NVPA_Status nvpaStatus = NVPW_MetricsEvaluator_Destroy(&destroyParams);
+                if (nvpaStatus != NVPA_STATUS_SUCCESS)
                 {
-                    NV_PERF_LOG_ERR(80, "NVPW_MetricsEvaluator_Destroy failed\n");
+                    NV_PERF_LOG_ERR(80, "NVPW_MetricsEvaluator_Destroy failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
                 }
                 m_pMetricsEvaluator = nullptr;
             }
@@ -253,9 +253,10 @@ namespace nv { namespace perf {
         NVPW_MetricsEvaluator_GetMetricNames_Params metricsEvaluatorGetMetricNamesParams = { NVPW_MetricsEvaluator_GetMetricNames_Params_STRUCT_SIZE };
         metricsEvaluatorGetMetricNamesParams.pMetricsEvaluator = pMetricsEvaluator;
         metricsEvaluatorGetMetricNamesParams.metricType = static_cast<uint8_t>(metricType);
-        const NVPA_Status status = NVPW_MetricsEvaluator_GetMetricNames(&metricsEvaluatorGetMetricNamesParams);
-        if (status != NVPA_STATUS_SUCCESS)
+        const NVPA_Status nvpaStatus = NVPW_MetricsEvaluator_GetMetricNames(&metricsEvaluatorGetMetricNamesParams);
+        if (nvpaStatus != NVPA_STATUS_SUCCESS)
         {
+            NV_PERF_LOG_ERR(80, "NVPW_MetricsEvaluator_GetMetricNames failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
             return MetricsEnumerator();
         }
         return MetricsEnumerator(metricsEvaluatorGetMetricNamesParams.pMetricNames, metricsEvaluatorGetMetricNamesParams.pMetricNameBeginIndices, metricsEvaluatorGetMetricNamesParams.numMetrics);
@@ -447,10 +448,10 @@ namespace nv { namespace perf {
         toMetricEvalRequestParams.pMetricName = pMetricName;
         toMetricEvalRequestParams.pMetricEvalRequest = &metricEvalRequest;
         toMetricEvalRequestParams.metricEvalRequestStructSize = NVPW_MetricEvalRequest_STRUCT_SIZE;
-        const NVPA_Status status = NVPW_MetricsEvaluator_ConvertMetricNameToMetricEvalRequest(&toMetricEvalRequestParams);
-        if (status != NVPA_STATUS_SUCCESS)
+        const NVPA_Status nvpaStatus = NVPW_MetricsEvaluator_ConvertMetricNameToMetricEvalRequest(&toMetricEvalRequestParams);
+        if (nvpaStatus != NVPA_STATUS_SUCCESS)
         {
-            NV_PERF_LOG_WRN(80, "NVPW_MetricsEvaluator_ConvertMetricNameToMetricEvalRequest failed\n");
+            NV_PERF_LOG_WRN(80, "NVPW_MetricsEvaluator_ConvertMetricNameToMetricEvalRequest failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
             return false;
         }
         return true;
@@ -461,10 +462,10 @@ namespace nv { namespace perf {
         NVPW_MetricsEvaluator_GetMetricTypeAndIndex_Params getMetricTypeAndIndexParams = { NVPW_MetricsEvaluator_GetMetricTypeAndIndex_Params_STRUCT_SIZE };
         getMetricTypeAndIndexParams.pMetricsEvaluator = pMetricsEvaluator;
         getMetricTypeAndIndexParams.pMetricName = pMetricName;
-        NVPA_Status status = NVPW_MetricsEvaluator_GetMetricTypeAndIndex(&getMetricTypeAndIndexParams);
-        if (status != NVPA_STATUS_SUCCESS)
+        NVPA_Status nvpaStatus = NVPW_MetricsEvaluator_GetMetricTypeAndIndex(&getMetricTypeAndIndexParams);
+        if (nvpaStatus != NVPA_STATUS_SUCCESS)
         {
-            NV_PERF_LOG_WRN(80, "NVPW_MetricsEvaluator_GetMetricTypeAndIndex failed\n");
+            NV_PERF_LOG_WRN(80, "NVPW_MetricsEvaluator_GetMetricTypeAndIndex failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
             return false;
         }
         metricType = static_cast<NVPW_MetricType>(getMetricTypeAndIndexParams.metricType);
@@ -477,10 +478,10 @@ namespace nv { namespace perf {
         NVPW_MetricsEvaluator_GetSupportedSubmetrics_Params getSupportedSubmetrics = { NVPW_MetricsEvaluator_GetSupportedSubmetrics_Params_STRUCT_SIZE };
         getSupportedSubmetrics.pMetricsEvaluator = pMetricsEvaluator;
         getSupportedSubmetrics.metricType = static_cast<uint8_t>(metricType);
-        NVPA_Status status = NVPW_MetricsEvaluator_GetSupportedSubmetrics(&getSupportedSubmetrics);
-        if (status != NVPA_STATUS_SUCCESS)
+        NVPA_Status nvpaStatus = NVPW_MetricsEvaluator_GetSupportedSubmetrics(&getSupportedSubmetrics);
+        if (nvpaStatus != NVPA_STATUS_SUCCESS)
         {
-            NV_PERF_LOG_ERR(80, "NVPW_MetricsEvaluator_GetSupportedSubmetrics failed for metric type: %u\n", getSupportedSubmetrics.metricType);
+            NV_PERF_LOG_ERR(80, "NVPW_MetricsEvaluator_GetSupportedSubmetrics failed for metric type: %u, nvpaStatus = %s\n", getSupportedSubmetrics.metricType, FormatStatus(nvpaStatus).c_str());
             return false;
         }
         submetrics.reserve(getSupportedSubmetrics.numSupportedSubmetrics);
@@ -497,10 +498,10 @@ namespace nv { namespace perf {
         setDeviceAttributesParams.pMetricsEvaluator = pMetricsEvaluator;
         setDeviceAttributesParams.pCounterDataImage = pCounterDataImage;
         setDeviceAttributesParams.counterDataImageSize = counterDataImageSize;
-        const NVPA_Status status = NVPW_MetricsEvaluator_SetDeviceAttributes(&setDeviceAttributesParams);
-        if (status != NVPA_STATUS_SUCCESS)
+        const NVPA_Status nvpaStatus = NVPW_MetricsEvaluator_SetDeviceAttributes(&setDeviceAttributesParams);
+        if (nvpaStatus != NVPA_STATUS_SUCCESS)
         {
-            NV_PERF_LOG_ERR(50, "NVPW_MetricsEvaluator_SetDeviceAttributes failed\n");
+            NV_PERF_LOG_ERR(50, "NVPW_MetricsEvaluator_SetDeviceAttributes failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
             return false;
         }
         return true;
@@ -526,10 +527,10 @@ namespace nv { namespace perf {
         evaluateToGpuValuesParams.counterDataImageSize = counterDataImageSize;
         evaluateToGpuValuesParams.rangeIndex = rangeIndex;
         evaluateToGpuValuesParams.pMetricValues = pMetricValues;
-        NVPA_Status status = NVPW_MetricsEvaluator_EvaluateToGpuValues(&evaluateToGpuValuesParams);
-        if (status != NVPA_STATUS_SUCCESS)
+        NVPA_Status nvpaStatus = NVPW_MetricsEvaluator_EvaluateToGpuValues(&evaluateToGpuValuesParams);
+        if (nvpaStatus != NVPA_STATUS_SUCCESS)
         {
-            NV_PERF_LOG_ERR(80, "NVPW_MetricsEvaluator_EvaluateToGpuValues failed\n");
+            NV_PERF_LOG_ERR(80, "NVPW_MetricsEvaluator_EvaluateToGpuValues failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
             return false;
         }
         return true;
@@ -560,18 +561,24 @@ namespace nv { namespace perf {
         getMetricDimUnitsParams.pMetricEvalRequest = &metricRequest;
         getMetricDimUnitsParams.metricEvalRequestStructSize = NVPW_MetricEvalRequest_STRUCT_SIZE;
         getMetricDimUnitsParams.dimUnitFactorStructSize = NVPW_DimUnitFactor_STRUCT_SIZE;
-        NVPA_Status status = NVPW_MetricsEvaluator_GetMetricDimUnits(&getMetricDimUnitsParams);
-        if (status != NVPA_STATUS_SUCCESS || !getMetricDimUnitsParams.numDimUnits)
+        NVPA_Status nvpaStatus = NVPW_MetricsEvaluator_GetMetricDimUnits(&getMetricDimUnitsParams);
+        if (nvpaStatus != NVPA_STATUS_SUCCESS)
         {
-            NV_PERF_LOG_WRN(80, "NVPW_MetricsEvaluator_GetMetricDimUnits failed for metric = %s\n", ToString(pMetricsEvaluator, metricRequest).c_str());
+            NV_PERF_LOG_WRN(80, "NVPW_MetricsEvaluator_GetMetricDimUnits failed for metric = %s, nvpaStatus = %s\n", ToString(pMetricsEvaluator, metricRequest).c_str(), FormatStatus(nvpaStatus).c_str());
             return false;
         }
+        if (!getMetricDimUnitsParams.numDimUnits)
+        {
+            dimUnits.clear();
+            return true;
+        }
+
         dimUnits.resize(getMetricDimUnitsParams.numDimUnits);
         getMetricDimUnitsParams.pDimUnits = dimUnits.data();
-        status = NVPW_MetricsEvaluator_GetMetricDimUnits(&getMetricDimUnitsParams);
-        if (status != NVPA_STATUS_SUCCESS)
+        nvpaStatus = NVPW_MetricsEvaluator_GetMetricDimUnits(&getMetricDimUnitsParams);
+        if (nvpaStatus != NVPA_STATUS_SUCCESS)
         {
-            NV_PERF_LOG_WRN(80, "NVPW_MetricsEvaluator_GetMetricDimUnits failed for metric = %s\n", ToString(pMetricsEvaluator, metricRequest).c_str());
+            NV_PERF_LOG_WRN(80, "NVPW_MetricsEvaluator_GetMetricDimUnits failed for metric = %s, nvpaStatus = %s\n", ToString(pMetricsEvaluator, metricRequest).c_str(), FormatStatus(nvpaStatus).c_str());
             return false;
         }
         return true;
@@ -584,8 +591,8 @@ namespace nv { namespace perf {
             NVPW_MetricsEvaluator_GetCounterProperties_Params params{ NVPW_MetricsEvaluator_GetCounterProperties_Params_STRUCT_SIZE };
             params.pMetricsEvaluator = pMetricsEvaluator;
             params.counterIndex = metricIndex;
-            NVPA_Status status = NVPW_MetricsEvaluator_GetCounterProperties(&params);
-            if (status == NVPA_STATUS_SUCCESS)
+            NVPA_Status nvpaStatus = NVPW_MetricsEvaluator_GetCounterProperties(&params);
+            if (nvpaStatus == NVPA_STATUS_SUCCESS)
             {
                 return params.pDescription;
             }
@@ -595,8 +602,8 @@ namespace nv { namespace perf {
             NVPW_MetricsEvaluator_GetRatioMetricProperties_Params params{ NVPW_MetricsEvaluator_GetRatioMetricProperties_Params_STRUCT_SIZE };
             params.pMetricsEvaluator = pMetricsEvaluator;
             params.ratioMetricIndex = metricIndex;
-            NVPA_Status status = NVPW_MetricsEvaluator_GetRatioMetricProperties(&params);
-            if (status == NVPA_STATUS_SUCCESS)
+            NVPA_Status nvpaStatus = NVPW_MetricsEvaluator_GetRatioMetricProperties(&params);
+            if (nvpaStatus == NVPA_STATUS_SUCCESS)
             {
                 return params.pDescription;
             }
@@ -606,8 +613,8 @@ namespace nv { namespace perf {
             NVPW_MetricsEvaluator_GetThroughputMetricProperties_Params params{ NVPW_MetricsEvaluator_GetThroughputMetricProperties_Params_STRUCT_SIZE };
             params.pMetricsEvaluator = pMetricsEvaluator;
             params.throughputMetricIndex = metricIndex;
-            NVPA_Status status = NVPW_MetricsEvaluator_GetThroughputMetricProperties(&params);
-            if (status == NVPA_STATUS_SUCCESS)
+            NVPA_Status nvpaStatus = NVPW_MetricsEvaluator_GetThroughputMetricProperties(&params);
+            if (nvpaStatus == NVPA_STATUS_SUCCESS)
             {
                 return params.pDescription;
             }
@@ -621,10 +628,10 @@ namespace nv { namespace perf {
         NVPW_MetricsEvaluator_HwUnitToString_Params params{ NVPW_MetricsEvaluator_HwUnitToString_Params_STRUCT_SIZE };
         params.pMetricsEvaluator = pMetricsEvaluator;
         params.hwUnit = hwUnit;
-        NVPA_Status status = NVPW_MetricsEvaluator_HwUnitToString(&params);
-        if (status != NVPA_STATUS_SUCCESS)
+        NVPA_Status nvpaStatus = NVPW_MetricsEvaluator_HwUnitToString(&params);
+        if (nvpaStatus != NVPA_STATUS_SUCCESS)
         {
-            NV_PERF_LOG_WRN(50, "NVPW_MetricsEvaluator_HwUnitToString failed for hwUnit: %u\n", hwUnit);
+            NV_PERF_LOG_WRN(50, "NVPW_MetricsEvaluator_HwUnitToString failed for hwUnit: %u, nvpaStatus = %s\n", hwUnit, FormatStatus(nvpaStatus).c_str());
             return nullptr;
         }
         return params.pHwUnitName;
@@ -637,8 +644,8 @@ namespace nv { namespace perf {
             NVPW_MetricsEvaluator_GetCounterProperties_Params params{ NVPW_MetricsEvaluator_GetCounterProperties_Params_STRUCT_SIZE };
             params.pMetricsEvaluator = pMetricsEvaluator;
             params.counterIndex = metricIndex;
-            NVPA_Status status = NVPW_MetricsEvaluator_GetCounterProperties(&params);
-            if (status == NVPA_STATUS_SUCCESS)
+            NVPA_Status nvpaStatus = NVPW_MetricsEvaluator_GetCounterProperties(&params);
+            if (nvpaStatus == NVPA_STATUS_SUCCESS)
             {
                 return static_cast<NVPW_HwUnit>(params.hwUnit);
             }
@@ -648,8 +655,8 @@ namespace nv { namespace perf {
             NVPW_MetricsEvaluator_GetRatioMetricProperties_Params params{ NVPW_MetricsEvaluator_GetRatioMetricProperties_Params_STRUCT_SIZE };
             params.pMetricsEvaluator = pMetricsEvaluator;
             params.ratioMetricIndex = metricIndex;
-            NVPA_Status status = NVPW_MetricsEvaluator_GetRatioMetricProperties(&params);
-            if (status == NVPA_STATUS_SUCCESS)
+            NVPA_Status nvpaStatus = NVPW_MetricsEvaluator_GetRatioMetricProperties(&params);
+            if (nvpaStatus == NVPA_STATUS_SUCCESS)
             {
                 return static_cast<NVPW_HwUnit>(params.hwUnit);
             }
@@ -659,8 +666,8 @@ namespace nv { namespace perf {
             NVPW_MetricsEvaluator_GetThroughputMetricProperties_Params params{ NVPW_MetricsEvaluator_GetThroughputMetricProperties_Params_STRUCT_SIZE };
             params.pMetricsEvaluator = pMetricsEvaluator;
             params.throughputMetricIndex = metricIndex;
-            NVPA_Status status = NVPW_MetricsEvaluator_GetThroughputMetricProperties(&params);
-            if (status == NVPA_STATUS_SUCCESS)
+            NVPA_Status nvpaStatus = NVPW_MetricsEvaluator_GetThroughputMetricProperties(&params);
+            if (nvpaStatus == NVPA_STATUS_SUCCESS)
             {
                 return static_cast<NVPW_HwUnit>(params.hwUnit);
             }
@@ -681,10 +688,10 @@ namespace nv { namespace perf {
         NVPW_MetricsEvaluator_DimUnitToString_Params dimUnitToStringParams = { NVPW_MetricsEvaluator_DimUnitToString_Params_STRUCT_SIZE };
         dimUnitToStringParams.pMetricsEvaluator = pMetricsEvaluator;
         dimUnitToStringParams.dimUnit = static_cast<uint32_t>(dimUnit);
-        NVPA_Status status = NVPW_MetricsEvaluator_DimUnitToString(&dimUnitToStringParams);
-        if (status != NVPA_STATUS_SUCCESS)
+        NVPA_Status nvpaStatus = NVPW_MetricsEvaluator_DimUnitToString(&dimUnitToStringParams);
+        if (nvpaStatus != NVPA_STATUS_SUCCESS)
         {
-            NV_PERF_LOG_WRN(80, "NVPW_MetricsEvaluator_DimUnitToString failed for dimUnit = %u\n", dimUnit);
+            NV_PERF_LOG_WRN(80, "NVPW_MetricsEvaluator_DimUnitToString failed for dimUnit = %, nvpaStatus = %su\n", dimUnit, FormatStatus(nvpaStatus).c_str());
             return "";
         }
         const char* pDimUnitStr = plural? dimUnitToStringParams.pPluralName : dimUnitToStringParams.pSingularName;
@@ -760,6 +767,39 @@ namespace nv { namespace perf {
             printFormattedDimUnits(denominatorCount, printNumerator);
         }
         return sstream.str();
+    }
+
+    inline bool GetMetricRawCounterDependencies(
+        NVPW_MetricsEvaluator* pMetricsEvaluator,
+        const NVPW_MetricEvalRequest* pMetricEvalRequests,
+        size_t numMetricEvalRequests,
+        std::vector<const char*>& rawDependencies,
+        std::vector<const char*>& optionalRawDependencies)
+    {
+        NVPW_MetricsEvaluator_GetMetricRawDependencies_Params getMetricRawDependenciesParams = { NVPW_MetricsEvaluator_GetMetricRawDependencies_Params_STRUCT_SIZE };
+        getMetricRawDependenciesParams.pMetricsEvaluator = pMetricsEvaluator;
+        getMetricRawDependenciesParams.pMetricEvalRequests = pMetricEvalRequests;
+        getMetricRawDependenciesParams.numMetricEvalRequests = numMetricEvalRequests;
+        getMetricRawDependenciesParams.metricEvalRequestStructSize = NVPW_MetricEvalRequest_STRUCT_SIZE;
+        getMetricRawDependenciesParams.metricEvalRequestStrideSize = sizeof(NVPW_MetricEvalRequest);
+        NVPA_Status nvpaStatus = NVPW_MetricsEvaluator_GetMetricRawDependencies(&getMetricRawDependenciesParams);
+        if (nvpaStatus)
+        {
+            NV_PERF_LOG_ERR(50, "NVPW_MetricsEvaluator_GetMetricRawDependencies failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
+            return false;
+        }
+
+        rawDependencies.resize(getMetricRawDependenciesParams.numRawDependencies);
+        optionalRawDependencies.resize(getMetricRawDependenciesParams.numOptionalRawDependencies);
+        getMetricRawDependenciesParams.ppRawDependencies = rawDependencies.data();
+        getMetricRawDependenciesParams.ppOptionalRawDependencies = optionalRawDependencies.data();
+        nvpaStatus = NVPW_MetricsEvaluator_GetMetricRawDependencies(&getMetricRawDependenciesParams);
+        if (nvpaStatus)
+        {
+            NV_PERF_LOG_ERR(50, "NVPW_MetricsEvaluator_GetMetricRawDependencies failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
+            return false;
+        }
+        return true;
     }
 
 }}

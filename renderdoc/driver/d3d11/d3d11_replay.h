@@ -308,6 +308,11 @@ public:
   RenderOutputSubresource GetRenderOutputSubresource(ResourceId id);
   bool IsRenderOutput(ResourceId id) { return GetRenderOutputSubresource(id).mip != ~0U; }
   void FileChanged() {}
+
+  // mc tag begin
+  rdcarray<ActionResDescription> &GetActionRes() override;
+  // mc tag end
+
 private:
   bool m_WARP;
   bool m_Proxy;

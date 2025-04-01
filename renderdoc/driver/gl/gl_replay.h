@@ -299,6 +299,10 @@ public:
   bool CreateFragmentShaderReplacementProgram(GLuint program, GLuint replacedProgram, GLuint pipeline,
                                               GLuint fragShader, GLuint fragShaderSPIRV);
 
+  // mc tag begin
+  rdcarray<ActionResDescription> &GetActionRes() override;
+  // mc tag end
+
 private:
   void OpenGLFillCBufferVariables(ResourceId shader, GLuint prog, bool bufferBacked, rdcstr prefix,
                                   const rdcarray<ShaderConstant> &variables,

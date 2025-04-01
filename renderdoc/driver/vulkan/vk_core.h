@@ -281,6 +281,12 @@ struct UserDebugUtilsCallbackData
   VkDebugUtilsMessengerEXT realObject;
 };
 
+struct VKPerfCallbackData
+{
+  std::function<void()> beginPerf;
+  std::function<void()> endPerf;
+};
+
 class WrappedVulkan : public IFrameCapturer
 {
 private:
@@ -746,7 +752,14 @@ private:
     uint32_t eventCount;             // how many events are in this cmd buffer, for quick skipping
     uint32_t curEventID;             // current event ID while reading or executing
     uint32_t actionCount;            // similar to above
+    // mc tag begin
+    rdcarray<ActionResDescription> actionResStack;
+    // mc tag end
   };
+
+  // mc tag begin
+  rdcarray<ActionResDescription> m_RootActionResStack;
+  // mc tag end
 
   uint64_t m_FakePushSetID = 0;
   VkDescriptorSet MakeFakePushDescSet()
@@ -1142,7 +1155,11 @@ private:
   void AddAction(const ActionDescription &a);
   void AddEvent();
 
-  void AddUsage(VulkanActionTreeNode &actionNode, rdcarray<DebugMessage> &debugMessages);
+  // mc tag begin
+  void AddUsage(VulkanActionTreeNode &actionNode, rdcarray<DebugMessage> &debugMessages,
+                rdcarray<ActionResDescription> &actionResStack);
+  // mc tag end
+
   void AddUsageForBind(VulkanActionTreeNode &actionNode, rdcarray<DebugMessage> &debugMessages,
                        uint32_t bindset, uint32_t bind, ResourceUsage usage);
 
@@ -1238,7 +1255,8 @@ public:
     m_State = CaptureState::StructuredExport;
   }
   void Shutdown();
-  void ReplayLog(uint32_t startEventID, uint32_t endEventID, ReplayLogType replayType);
+  void ReplayLog(uint32_t startEventID, uint32_t endEventID, ReplayLogType replayType,
+                 const VKPerfCallbackData *perfCb = nullptr);
   void ReplayDraw(VkCommandBuffer cmd, const ActionDescription &action);
   RDResult ReadLogInitialisation(RDCFile *rdc, bool storeStructuredBuffers);
 
@@ -1456,6 +1474,10 @@ public:
 
     return NULL;
   }
+
+  // mc tag begin
+  rdcarray<ActionResDescription> &GetActionResDesc() { return m_RootActionResStack; }
+  // mc tag end
 
   // Device initialization
 

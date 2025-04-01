@@ -27,6 +27,7 @@
 #include "common/common.h"
 #include "common/formatting.h"
 #include "os/os_specific.h"
+#include "serialise/rdcfile.h"
 #include "strings/string_utils.h"
 
 #if ENABLED(RDOC_WIN32)
@@ -38,16 +39,50 @@
 #include "NvPerfCounterConfiguration.h"
 #include "NvPerfCounterData.h"
 #include "NvPerfMetricsEvaluator.h"
+#include "NvPerfReportGenerator.h"
+
+void CustomEvalRangeMetricValues(const nv::perf::MetricsEvaluator &evaluator,
+                                 const nv::perf::ReportData &reportData,
+                                 const nv::perf::BaseMetricRequests &baseMetricRequests,
+                                 const nv::perf::SubmetricRequests &submetricRequests,
+                                 size_t rangeIndex, std::vector<double> &metricValues)
+{
+  const size_t totalNumSubmetrics = GetTotalNumSubmetrics(baseMetricRequests, submetricRequests);
+  metricValues.resize(totalNumSubmetrics);
+
+  size_t metricIndex = 0;
+  const bool evalSuccess = ForEachBaseMetric(
+      baseMetricRequests, submetricRequests,
+      [&](const NVPW_MetricEvalRequest *pMetricEvalRequests, size_t numMetricEvalRequests) {
+        const bool success = nv::perf::EvaluateToGpuValues(
+            evaluator, reportData.pCounterDataImage, reportData.counterDataImageSize, rangeIndex,
+            numMetricEvalRequests, pMetricEvalRequests, metricValues.data() + metricIndex);
+        if(!success)
+        {
+          return false;
+        }
+        metricIndex += numMetricEvalRequests;
+        return true;
+      });
+  if(!evalSuccess)
+  {
+    RDCERR("Failed to evaluate metrics\n");
+    return;
+  }
+  assert(metricIndex == totalNumSubmetrics);
+}
 
 struct NVCounterEnumerator::Impl
 {
 public:
   nv::perf::MetricsEvaluator Evaluator;
-
+  nv::perf::ReportLayout ReportLayout;
   nv::perf::CounterConfiguration SelectedConfiguration;    // configImage etc. for the current selection
   rdcarray<GPUCounter> SelectedExternalIds;
   rdcarray<NVPW_MetricEvalRequest> SelectedEvalRequests;
   size_t SelectedNumPasses;
+  NVPW_Device_ClockStatus ClockStatus = NVPW_DEVICE_CLOCK_STATUS_UNKNOWN;
+  size_t DeviceIndex = 0;
 
   const rdcarray<GPUCounter> &ExternalIds()
   {
@@ -81,6 +116,11 @@ NVCounterEnumerator::NVCounterEnumerator()
 
 NVCounterEnumerator::~NVCounterEnumerator()
 {
+  if(m_Impl->ClockStatus != NVPW_DEVICE_CLOCK_STATUS_UNKNOWN)
+  {
+    nv::perf::SetDeviceClockState(m_Impl->DeviceIndex, m_Impl->ClockStatus);
+  }
+
   delete m_Impl;
 }
 
@@ -111,9 +151,40 @@ static CounterUnit ToCounterUnit(const std::vector<NVPW_DimUnitFactor> &dimUnits
   return CounterUnit::Absolute;
 }
 
-bool NVCounterEnumerator::Init(nv::perf::MetricsEvaluator &&metricsEvaluator)
+bool NVCounterEnumerator::Init(nv::perf::MetricsEvaluator &&metricsEvaluator,
+                               nv::perf::DeviceIdentifiers &deviceIdentifiers, size_t deviceIndex)
 {
   m_Impl->Evaluator = std::move(metricsEvaluator);
+
+  auto &reportLayout = m_Impl->ReportLayout;
+  reportLayout.perRange.definition =
+      nv::perf::PerRangeReport::GetReportDefinition(deviceIdentifiers.pChipName);
+
+  if(!reportLayout.perRange.definition.pReportHtml)
+  {
+    RDCERR("HTML Reports not supported for chip=%s, Device=%s\n", deviceIdentifiers.pChipName,
+           deviceIdentifiers.pDeviceName);
+    return false;
+  }
+  std::vector<std::string> additionalMetrics = {};
+  nv::perf::PerRangeReport::InitReportDataMetrics(m_Impl->Evaluator, additionalMetrics, reportLayout);
+
+  reportLayout.summary.definition =
+      nv::perf::SummaryReport::GetReportDefinition(deviceIdentifiers.pChipName);
+  if(!reportLayout.summary.definition.pReportHtml)
+  {
+    RDCERR("HTML Reports not supported for chip=%s, Device=%s\n", deviceIdentifiers.pChipName,
+           deviceIdentifiers.pDeviceName);
+    return false;
+  }
+  nv::perf::SummaryReport::InitReportDataMetrics(m_Impl->Evaluator, reportLayout);
+  reportLayout.gpuName = deviceIdentifiers.pDeviceName;
+  reportLayout.chipName = deviceIdentifiers.pChipName;
+
+  m_Impl->DeviceIndex = deviceIndex;
+
+  m_Impl->ClockStatus = nv::perf::GetDeviceClockState(m_Impl->DeviceIndex);
+  nv::perf::SetDeviceClockState(m_Impl->DeviceIndex, NVPW_DEVICE_CLOCK_STATUS_LOCKED_TO_RATED_TDP);
 
   return true;
 }
@@ -298,6 +369,7 @@ bool NVCounterEnumerator::CreateConfig(const char *pChipName,
     return false;
   }
 
+#if 0
   for(GPUCounter counterID : counters)
   {
     RDCASSERT(IsNvidiaCounter(counterID));
@@ -330,10 +402,43 @@ bool NVCounterEnumerator::CreateConfig(const char *pChipName,
   m_Impl->SelectedConfiguration.configImage.resize(configImageSize);
   m_Impl->SelectedConfiguration.counterDataPrefix.resize(counterDataPrefixSize);
   metricsConfigBuilder.GetConfigImage(m_Impl->SelectedConfiguration.configImage.size(),
-                                      m_Impl->SelectedConfiguration.configImage.data());
+      m_Impl->SelectedConfiguration.configImage.data());
   metricsConfigBuilder.GetCounterDataPrefix(m_Impl->SelectedConfiguration.counterDataPrefix.size(),
-                                            m_Impl->SelectedConfiguration.counterDataPrefix.data());
+      m_Impl->SelectedConfiguration.counterDataPrefix.data());
   m_Impl->SelectedNumPasses = metricsConfigBuilder.GetNumPasses();
+
+#else
+
+  auto &reportLayout = m_Impl->ReportLayout;
+
+  auto addMetrics = [&](const NVPW_MetricEvalRequest *pMetricEvalRequests,
+                        size_t numMetricEvalRequests) {
+    if(!metricsConfigBuilder.AddMetrics(pMetricEvalRequests, numMetricEvalRequests))
+    {
+      return false;
+    }
+    return true;
+  };
+
+  if(!ForEachBaseMetric(reportLayout.perRange.baseMetricRequests,
+                        reportLayout.perRange.submetricRequests, addMetrics))
+  {
+    RDCERR("AddMetrics failed for per-range report\n");
+    return false;
+  }
+  if(!ForEachBaseMetric(reportLayout.summary.baseMetricRequests,
+                        reportLayout.summary.submetricRequests, addMetrics))
+  {
+    RDCERR("AddMetrics failed for summary report\n");
+    return false;
+  }
+  if(!nv::perf::CreateConfiguration(metricsConfigBuilder, m_Impl->SelectedConfiguration))
+  {
+    RDCERR("CreateConfiguration failed\n");
+    return false;
+  }
+  m_Impl->SelectedNumPasses = metricsConfigBuilder.GetNumPasses();
+#endif
   return true;
 }
 
@@ -377,6 +482,8 @@ bool NVCounterEnumerator::EvaluateMetrics(const uint8_t *counterDataImage,
 
   std::vector<double> doubleValues;
   doubleValues.resize(m_Impl->SelectedEvalRequests.size());
+
+#if 0
   for(uint32_t rangeIndex = 0; rangeIndex < numRanges; ++rangeIndex)
   {
     const char *leafRangeName = NULL;
@@ -404,6 +511,7 @@ bool NVCounterEnumerator::EvaluateMetrics(const uint8_t *counterDataImage,
       RDCERR("NvPerf failed to evaluate GPU metrics for range: %s", leafRangeName);
       continue;
     }
+
     for(size_t counterIndex = 0; counterIndex < m_Impl->SelectedExternalIds.size(); ++counterIndex)
     {
       CounterResult counterResult(eid, m_Impl->SelectedExternalIds[counterIndex],
@@ -411,6 +519,79 @@ bool NVCounterEnumerator::EvaluateMetrics(const uint8_t *counterDataImage,
       values.push_back(counterResult);
     }
   }
+#else
+  nv::perf::ReportData reportData = {};
+  auto now = std::chrono::system_clock::now();
+  const uint64_t secondsSinceEpoch = static_cast<uint64_t>(std::chrono::system_clock::to_time_t(now));
+
+  std::string reportDirName = RDCFile::GetCurrentOpenFile().c_str();
+
+  reportDirName = reportDirName.substr(0, reportDirName.find_last_of('.'));
+
+  const std::string formattedTime = nv::perf::FormatTime(secondsSinceEpoch);
+  if(!formattedTime.empty())
+  {
+    reportDirName += std::string(1, NV_PERF_PATH_SEPARATOR) + formattedTime;
+  }
+
+  auto isPathSeparator = [](char c) { return (c == NV_PERF_PATH_SEPARATOR); };
+  if(!isPathSeparator(reportDirName.back()))
+  {
+    reportDirName += NV_PERF_PATH_SEPARATOR;
+  }
+
+  // try to recursively create the directory
+  for(size_t di = 0; di < reportDirName.length(); ++di)
+  {
+    if(isPathSeparator(reportDirName[di]))
+    {
+      std::string parentDir(reportDirName, 0, di);
+#ifdef WIN32
+      BOOL dirCreated = CreateDirectoryA(parentDir.c_str(), NULL);
+#else
+      bool dirCreated = !mkdir(parentDir.c_str(), 0777);
+#endif
+      if(!dirCreated)
+      { /* it probably already exists */
+      }
+    }
+  }
+
+  reportData.secondsSinceEpoch = secondsSinceEpoch;
+  reportData.clockStatus = NVPW_DEVICE_CLOCK_STATUS_LOCKED_TO_RATED_TDP;
+  reportData.pCounterDataImage = counterDataImage;
+  reportData.counterDataImageSize = counterDataImageSize;
+  reportData.reportDirectoryName = reportDirName;
+  reportData.ranges.resize(numRanges);
+
+  auto &reportLayout = m_Impl->ReportLayout;
+
+  for(size_t rangeIndex = 0; rangeIndex < numRanges; rangeIndex++)
+  {
+    const char *pLeafName = nullptr;
+    reportData.ranges[rangeIndex].fullName = nv::perf::profiler::CounterDataGetRangeName(
+        reportData.pCounterDataImage, rangeIndex, '/', &pLeafName);
+    reportData.ranges[rangeIndex].leafName = pLeafName;
+
+    CustomEvalRangeMetricValues(m_Impl->Evaluator, reportData,
+                                reportLayout.summary.baseMetricRequests,
+                                reportLayout.summary.submetricRequests, rangeIndex,
+                                reportData.ranges[rangeIndex].summaryReportValues);
+    CustomEvalRangeMetricValues(m_Impl->Evaluator, reportData,
+                                reportLayout.perRange.baseMetricRequests,
+                                reportLayout.perRange.submetricRequests, rangeIndex,
+                                reportData.ranges[rangeIndex].perRangeReportValues);
+  }
+
+  nv::perf::SummaryReport::WriteHtmlReportFile(m_Impl->Evaluator, reportLayout, reportData);
+  nv::perf::PerRangeReport::WriteHtmlReportFiles(m_Impl->Evaluator, reportLayout, reportData);
+  nv::perf::SchedulingInfo::WriteHtmlReportFile(m_Impl->Evaluator, reportLayout, reportData,
+                                                m_Impl->SelectedConfiguration);
+
+  nv::perf::SummaryReport::WriteCsvReportFile(m_Impl->Evaluator, reportLayout, reportData);
+  nv::perf::PerRangeReport::WriteCsvReportFile(m_Impl->Evaluator, reportLayout, reportData);
+
+#endif
 
   return true;
 }

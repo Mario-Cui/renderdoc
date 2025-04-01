@@ -83,6 +83,8 @@ WrappedID3D11DeviceContext::WrappedID3D11DeviceContext(WrappedID3D11Device *real
 {
   RenderDoc::Inst().RegisterMemoryRegion(this, sizeof(WrappedID3D11DeviceContext));
 
+  m_ActionResStack = {};
+
   for(int i = 0; i < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; i++)
   {
     NullCBOffsets[i] = 0;
@@ -1055,6 +1057,29 @@ void WrappedID3D11DeviceContext::AddUsage(const ActionDescription &a)
   const D3D11RenderState::Shader *shArr[NumShaderStages] = {
       &pipe->VS, &pipe->HS, &pipe->DS, &pipe->GS, &pipe->PS, &pipe->CS,
   };
+
+  // mc tab begin
+  ActionResDescription resDesc = {};
+  resDesc.flags = a.flags;
+  auto rm = m_pDevice->GetResourceManager();
+
+  resDesc.eventId = e;
+
+  if(!isDispatch)
+  {
+    resDesc.vs = rm->GetUnreplacedOriginalID(GetIDForDeviceChild(pipe->VS.Object));
+    resDesc.hs = rm->GetUnreplacedOriginalID(GetIDForDeviceChild(pipe->HS.Object));
+    resDesc.ds = rm->GetUnreplacedOriginalID(GetIDForDeviceChild(pipe->DS.Object));
+    resDesc.gs = rm->GetUnreplacedOriginalID(GetIDForDeviceChild(pipe->GS.Object));
+    resDesc.ps = rm->GetUnreplacedOriginalID(GetIDForDeviceChild(pipe->PS.Object));
+  }
+  else
+  {
+    resDesc.cs = rm->GetUnreplacedOriginalID(GetIDForDeviceChild(pipe->CS.Object));
+  }
+
+  m_ActionResStack.push_back(resDesc);
+  // mc tag end
 
   int firstShader = 0, numShaders = 5;
 

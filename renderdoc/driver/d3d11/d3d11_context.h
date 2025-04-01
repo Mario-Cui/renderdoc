@@ -240,6 +240,10 @@ private:
 
   rdcarray<ActionDescription *> m_ActionStack;
 
+  // mc tag begin
+  rdcarray<ActionResDescription> m_ActionResStack;
+  // mc tag end
+
   D3D11ResourceManager *GetResourceManager();
   static rdcstr GetChunkName(uint32_t idx);
 
@@ -337,7 +341,10 @@ public:
   RDResult ReplayLog(CaptureState readType, uint32_t startEventID, uint32_t endEventID, bool partial);
   void SetFrameReader(StreamReader *reader) { m_FrameReader = reader; }
   void MarkResourceReferenced(ResourceId id, FrameRefType refType);
-
+  // mc tag begin
+  rdcarray<ActionResDescription> &GetActionResDescription() { return m_ActionResStack; }
+  uint32_t GetMaxEID() { return m_Events.back().eventId; }
+  // mc tag end
   rdcarray<EventUsage> GetUsage(ResourceId id) { return m_ResourceUses[id]; }
   void ClearMaps();
 

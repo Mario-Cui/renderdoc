@@ -30,12 +30,15 @@
 #include "api/replay/replay_enums.h"
 #include "common/common.h"
 
+#define USE_FOR_CMD 0
+
 struct NVPA_RawMetricsConfig;
 namespace nv
 {
 namespace perf
 {
 class MetricsEvaluator;
+struct DeviceIdentifiers;
 }
 }
 
@@ -46,7 +49,8 @@ public:
   ~NVCounterEnumerator();
 
   // This function takes ownership of metricsEvaluator.
-  bool Init(nv::perf::MetricsEvaluator &&metricsEvaluator);
+  bool Init(nv::perf::MetricsEvaluator &&metricsEvaluator,
+            nv::perf::DeviceIdentifiers &deviceIdentifiers, size_t deviceIndex);
 
   rdcarray<GPUCounter> GetPublicCounterIds();
   CounterDescription GetCounterDescription(GPUCounter counterID);

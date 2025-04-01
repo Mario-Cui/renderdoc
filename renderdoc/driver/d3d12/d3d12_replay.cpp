@@ -4465,6 +4465,13 @@ void D3D12Replay::SetProxyBufferData(ResourceId bufid, byte *data, size_t dataSi
 {
 }
 
+// mc tag begin
+rdcarray<ActionResDescription> &D3D12Replay::GetActionRes()
+{
+  return m_pDevice->GetQueue()->GetCommandData()->GetActionResDesc();
+}
+// mc tag end
+
 #pragma endregion
 
 RDResult D3D12_CreateReplayDevice(RDCFile *rdc, const ReplayOptions &opts, IReplayDriver **driver)

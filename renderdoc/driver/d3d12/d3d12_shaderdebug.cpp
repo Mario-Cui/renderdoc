@@ -2065,7 +2065,37 @@ ShaderDebugTrace *D3D12Replay::DebugVertex(uint32_t eventId, uint32_t vertid, ui
           }
           else if(fmt.type == ResourceFormatType::R5G6B5)
           {
-            RDCASSERT(fmt.BGRAOrder());
+            do
+            {
+              if(!(fmt.BGRAOrder()))
+              {
+                const char custommsg[] = "";
+                (void)custommsg;
+                rdcstr assertmsg =
+                    "'"
+                    "fmt.BGRAOrder()"
+                    "' ";
+                assertmsg += (sizeof(custommsg) > 1) ? ""
+                                                       " "
+                                                     : "";
+                rdcstr failmsg;
+                ;
+                if(!failmsg.empty())
+                {
+                  failmsg.pop_back();
+                  failmsg.pop_back();
+                }
+                rdcstr combinedmsg = assertmsg + (failmsg.empty() ? "" : "(" + failmsg + ")");
+                rdcassert(
+                    combinedmsg.c_str(),
+                    "D:\\git_store\\renderdoc\\renderdoc\\driver\\d3d12\\d3d12_shaderdebug.cpp",
+                    1803, __FUNCSIG__);
+                rdclog_flush();
+                do
+                {
+                } while((void)0, 0);
+              }
+            } while((void)0, 0);
             uint16_t packed = ((uint16_t *)srcData)[0];
             *v3 = ConvertFromB5G6R5(packed);
           }

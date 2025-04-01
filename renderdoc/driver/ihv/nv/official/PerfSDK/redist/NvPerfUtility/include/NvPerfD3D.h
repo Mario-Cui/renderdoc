@@ -1,5 +1,5 @@
 /*
-* Copyright 2014-2022 NVIDIA Corporation.  All rights reserved.
+* Copyright 2014-2024 NVIDIA Corporation.  All rights reserved.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -48,6 +48,7 @@ namespace nv { namespace perf {
         NVPA_Status nvpaStatus = NVPW_Adapter_GetDeviceIndex(&getDeviceIndexParams);
         if (nvpaStatus)
         {
+            NV_PERF_LOG_ERR(10, "NVPW_Adapter_GetDeviceIndex failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
             return ~size_t(0);
         }
 

@@ -623,6 +623,16 @@ bool WrappedID3D12CommandQueue::Serialise_ExecuteCommandLists(SerialiserType &se
           m_Cmd.m_RootEventID++;
         }
 
+        // mc tag begin
+
+        std::sort(cmdListInfo.actionResStack.begin(), cmdListInfo.actionResStack.end());
+
+        for(auto &actionRes : cmdListInfo.actionResStack)
+        {
+          m_Cmd.GetActionResDesc().push_back(actionRes);
+        }
+        // mc tag end
+
         // insert the baked command list in-line into this list of notes, assigning new event and
         // drawIDs
         m_Cmd.InsertActionsAndRefreshIDs(cmd, cmdListInfo.action->children);

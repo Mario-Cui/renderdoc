@@ -5301,6 +5301,27 @@ RDResult WrappedID3D12Device::ReadLogInitialisation(RDCFile *rdc, bool storeStru
   // and in future use this file.
   m_StructuredFile = m_StoredStructuredData;
 
+  // mc tag begin
+  auto UpdateActionResEID = [](rdcarray<ActionDescription *> &actions,
+                               rdcarray<ActionResDescription> &res) {
+    size_t index = 0;
+    ActionFlags actionMask = ActionFlags::Drawcall | ActionFlags::Dispatch;
+
+    for(auto action : actions)
+    {
+      if(!action)
+        continue;
+
+      if(!(action->flags & actionMask))
+        continue;
+
+      RDCASSERT(res[index].flags == action->flags);
+      res[index].eventId = action->eventId;
+      index++;
+    }
+  };
+  // mc tag end
+
   if(!IsStructuredExporting(m_State))
   {
     GetReplay()->WriteFrameRecord().actionList = m_Queue->GetParentAction().Bake();
@@ -5308,6 +5329,10 @@ RDResult WrappedID3D12Device::ReadLogInitialisation(RDCFile *rdc, bool storeStru
     m_Queue->GetParentAction().children.clear();
 
     SetupActionPointers(m_Actions, GetReplay()->WriteFrameRecord().actionList);
+
+    // mc tag begin
+    UpdateActionResEID(m_Actions, GetQueue()->GetCommandData()->GetActionResDesc());
+    // mc tag end
   }
 
   {
@@ -5379,7 +5404,7 @@ RDResult WrappedID3D12Device::ReadLogInitialisation(RDCFile *rdc, bool storeStru
 }
 
 void WrappedID3D12Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
-                                    ReplayLogType replayType)
+                                    ReplayLogType replayType, const D3D12PerfCallbackData *perfCbData)
 {
   bool partial = true;
 
@@ -5466,6 +5491,11 @@ void WrappedID3D12Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
   }
 
   {
+    if(nullptr != perfCbData)
+    {
+      perfCbData->beginPerf();
+    }
+
     D3D12CommandData &cmd = *m_Queue->GetCommandData();
 
     if(!partial)
@@ -5524,6 +5554,11 @@ void WrappedID3D12Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
       ExecuteLists();
 
       cmd.m_OutsideCmdList = NULL;
+    }
+
+    if(nullptr != perfCbData)
+    {
+      perfCbData->endPerf();
     }
 
     if(HasFatalError())

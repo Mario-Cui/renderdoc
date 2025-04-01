@@ -3613,11 +3613,36 @@ RDResult WrappedVulkan::ContextReplayLog(CaptureState readType, uint32_t startEv
 
   m_StructuredFile = prevFile;
 
+  // mc tag begin
+  auto UpdateActionResEID = [](rdcarray<ActionDescription *> &actions,
+                               rdcarray<ActionResDescription> &res) {
+    size_t index = 0;
+    ActionFlags actionMask = ActionFlags::Drawcall | ActionFlags::Dispatch;
+
+    for(auto action : actions)
+    {
+      if(!action)
+        continue;
+
+      if(!(action->flags & actionMask))
+        continue;
+
+      RDCASSERT(res[index].flags == action->flags);
+      res[index].eventId = action->eventId;
+      index++;
+    }
+  };
+  // mc tag end
+
   if(IsLoading(m_State))
   {
     GetReplay()->WriteFrameRecord().actionList = m_ParentAction.Bake();
 
     SetupActionPointers(m_Actions, GetReplay()->WriteFrameRecord().actionList);
+
+    // mc tag begin
+    UpdateActionResEID(m_Actions, m_RootActionResStack);
+    // mc tag end
 
     m_ParentAction.children.clear();
   }
@@ -4512,7 +4537,8 @@ VkResourceRecord *WrappedVulkan::RegisterSurface(WindowingSystem system, void *h
   return (VkResourceRecord *)new PackedWindowHandle(system, handle);
 }
 
-void WrappedVulkan::ReplayLog(uint32_t startEventID, uint32_t endEventID, ReplayLogType replayType)
+void WrappedVulkan::ReplayLog(uint32_t startEventID, uint32_t endEventID, ReplayLogType replayType,
+                              const VKPerfCallbackData *perfCb)
 {
   bool partial = true;
 
@@ -4551,6 +4577,11 @@ void WrappedVulkan::ReplayLog(uint32_t startEventID, uint32_t endEventID, Replay
     VkResult vkr = VK_SUCCESS;
 
     rdcarray<CommandBufferNode> cacheNodes = m_Partial.partialStack;
+
+    if(nullptr != perfCb)
+    {
+      perfCb->beginPerf();
+    }
 
     // we'll need our own command buffer if we're replaying just a subsection
     // of events within a single command buffer record - always if it's only
@@ -4690,6 +4721,11 @@ void WrappedVulkan::ReplayLog(uint32_t startEventID, uint32_t endEventID, Replay
       SubmitCmds();
 
       m_OutsideCmdBuffer = VK_NULL_HANDLE;
+    }
+
+    if(nullptr != perfCb)
+    {
+      perfCb->endPerf();
     }
 
     if(Vulkan_Debug_SingleSubmitFlushing())
@@ -5512,7 +5548,8 @@ void WrappedVulkan::AddAction(const ActionDescription &a)
     node.resourceUsage.swap(m_BakedCmdBufferInfo[m_LastCmdBufferID].resourceUsage);
 
     if(m_LastCmdBufferID != ResourceId())
-      AddUsage(node, m_BakedCmdBufferInfo[m_LastCmdBufferID].debugMessages);
+      AddUsage(node, m_BakedCmdBufferInfo[m_LastCmdBufferID].debugMessages,
+               m_BakedCmdBufferInfo[m_LastCmdBufferID].actionResStack);
 
     node.children.reserve(action.children.size());
     for(const ActionDescription &child : action.children)
@@ -5523,7 +5560,8 @@ void WrappedVulkan::AddAction(const ActionDescription &a)
     RDCERR("Somehow lost action stack!");
 }
 
-void WrappedVulkan::AddUsage(VulkanActionTreeNode &actionNode, rdcarray<DebugMessage> &debugMessages)
+void WrappedVulkan::AddUsage(VulkanActionTreeNode &actionNode, rdcarray<DebugMessage> &debugMessages,
+                             rdcarray<ActionResDescription> &actionResStack)
 {
   ActionDescription &action = actionNode.action;
 
@@ -5566,10 +5604,11 @@ void WrappedVulkan::AddUsage(VulkanActionTreeNode &actionNode, rdcarray<DebugMes
 
   //////////////////////////////
   // Shaders
-
+  bool isCompute = false;
   rdcarray<int> shaderStages;
   if(action.flags & ActionFlags::Dispatch)
   {
+    isCompute = true;
     shaderStages = {5};
   }
   else if(action.flags & ActionFlags::Drawcall)
@@ -5580,6 +5619,37 @@ void WrappedVulkan::AddUsage(VulkanActionTreeNode &actionNode, rdcarray<DebugMes
   {
     shaderStages = {4, 6, 7};
   }
+
+  // mc tag begin
+  ActionResDescription resDesc = {};
+  resDesc.flags = action.flags;
+  resDesc.eventId = eid;
+
+  ResourceId computePipe = state.compute.pipeline;
+  ResourceId graphicsPipe = state.graphics.pipeline;
+
+  auto &computeSh = c.m_Pipeline[computePipe].shaders[5];
+
+  auto &vertexSh = c.m_Pipeline[graphicsPipe].shaders[0];
+  auto &hullSh = c.m_Pipeline[graphicsPipe].shaders[1];
+  auto &domainSh = c.m_Pipeline[graphicsPipe].shaders[2];
+  auto &geometrySh = c.m_Pipeline[graphicsPipe].shaders[3];
+  auto &pixelSh = c.m_Pipeline[graphicsPipe].shaders[4];
+
+  if(isCompute)
+  {
+    resDesc.cs = GetResourceManager()->GetOriginalID(computeSh.module);
+  }
+  else
+  {
+    resDesc.vs = GetResourceManager()->GetOriginalID(vertexSh.module);
+    resDesc.hs = GetResourceManager()->GetOriginalID(hullSh.module);
+    resDesc.ds = GetResourceManager()->GetOriginalID(domainSh.module);
+    resDesc.gs = GetResourceManager()->GetOriginalID(geometrySh.module);
+    resDesc.ps = GetResourceManager()->GetOriginalID(pixelSh.module);
+  }
+  actionResStack.push_back(resDesc);
+  // mc tag end
 
   for(int shad : shaderStages)
   {

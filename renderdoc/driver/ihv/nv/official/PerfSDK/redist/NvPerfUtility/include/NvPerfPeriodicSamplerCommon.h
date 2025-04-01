@@ -1,5 +1,5 @@
 /*
-* Copyright 2014-2022 NVIDIA Corporation.  All rights reserved.
+* Copyright 2014-2024 NVIDIA Corporation.  All rights reserved.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ namespace nv { namespace perf { namespace sampler {
         NVPA_Status nvpaStatus = NVPW_Device_MetricsEvaluator_CalculateScratchBufferSize(&calculateScratchBufferSizeParams);
         if (nvpaStatus)
         {
-            NV_PERF_LOG_ERR(20, "NVPW_Device_MetricsEvaluator_CalculateScratchBufferSize failed\n");
+            NV_PERF_LOG_ERR(20, "NVPW_Device_MetricsEvaluator_CalculateScratchBufferSize failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
             return 0;
         }
         return calculateScratchBufferSizeParams.scratchBufferSize;
@@ -44,7 +44,7 @@ namespace nv { namespace perf { namespace sampler {
         NVPA_Status nvpaStatus = NVPW_Device_MetricsEvaluator_Initialize(&initializeParams);
         if (nvpaStatus)
         {
-            NV_PERF_LOG_ERR(20, "NVPW_Devicee_MetricsEvaluator_Initialize failed\n");
+            NV_PERF_LOG_ERR(20, "NVPW_Device_MetricsEvaluator_Initialize failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
             return nullptr;
         }
         return initializeParams.pMetricsEvaluator;
@@ -72,7 +72,7 @@ namespace nv { namespace perf { namespace sampler {
         NVPA_Status nvpaStatus = NVPW_Device_RawMetricsConfig_Create(&configParams);
         if (nvpaStatus)
         {
-            NV_PERF_LOG_ERR(20, "NVPW_Device_RawMetricsConfig_Create failed\n");
+            NV_PERF_LOG_ERR(20, "NVPW_Device_RawMetricsConfig_Create failed, nvpaStatus = %s\n", FormatStatus(nvpaStatus).c_str());
             return nullptr;
         }
 

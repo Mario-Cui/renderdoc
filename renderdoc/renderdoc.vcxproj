@@ -145,6 +145,10 @@
     <ClInclude Include="3rdparty\superluminal\superluminal.h" />
     <ClInclude Include="3rdparty\tinyexr\tinyexr.h" />
     <ClInclude Include="3rdparty\tinyfiledialogs\tinyfiledialogs.h" />
+    <ClInclude Include="3rdparty\tinygltf\json.hpp" />
+    <ClInclude Include="3rdparty\tinygltf\stb_image.h" />
+    <ClInclude Include="3rdparty\tinygltf\stb_image_write.h" />
+    <ClInclude Include="3rdparty\tinygltf\tiny_gltf.h" />
     <ClInclude Include="3rdparty\zstd\bitstream.h" />
     <ClInclude Include="3rdparty\zstd\compiler.h" />
     <ClInclude Include="3rdparty\zstd\cpu.h" />
@@ -365,6 +369,7 @@
       <ForcedIncludeFiles>
       </ForcedIncludeFiles>
     </ClCompile>
+    <ClCompile Include="3rdparty\tinygltf\tiny_gltf.cc" />
     <ClCompile Include="3rdparty\zstd\debug.c">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <ForcedIncludeFiles>

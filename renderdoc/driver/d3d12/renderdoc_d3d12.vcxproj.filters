@@ -87,6 +87,9 @@
     <ClInclude Include="d3d12_rootsig.h">
       <Filter>Util</Filter>
     </ClInclude>
+    <ClInclude Include="d3d12_bvh_dump.h">
+      <Filter>Util</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="d3d12_common.cpp">
@@ -253,6 +256,9 @@
     </ClCompile>
     <ClCompile Include="d3d12_command_list10_wrap.cpp">
       <Filter>Wrapped</Filter>
+    </ClCompile>
+    <ClCompile Include="d3d12_bvh_dump.cpp">
+      <Filter>Util</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

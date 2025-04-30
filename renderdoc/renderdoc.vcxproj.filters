@@ -142,6 +142,9 @@
     <Filter Include="Replay\Common">
       <UniqueIdentifier>{02773850-117a-47d9-b238-d5d4b96468b3}</UniqueIdentifier>
     </Filter>
+    <Filter Include="3rdparty\tinygltf">
+      <UniqueIdentifier>{cf4c5b42-e546-4acb-bb5e-6b7572f3c13b}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="maths\camera.h">
@@ -576,6 +579,18 @@
     <ClInclude Include="api\replay\external_config.h">
       <Filter>API\Replay</Filter>
     </ClInclude>
+    <ClInclude Include="3rdparty\tinygltf\json.hpp">
+      <Filter>3rdparty\tinygltf</Filter>
+    </ClInclude>
+    <ClInclude Include="3rdparty\tinygltf\stb_image.h">
+      <Filter>3rdparty\tinygltf</Filter>
+    </ClInclude>
+    <ClInclude Include="3rdparty\tinygltf\stb_image_write.h">
+      <Filter>3rdparty\tinygltf</Filter>
+    </ClInclude>
+    <ClInclude Include="3rdparty\tinygltf\tiny_gltf.h">
+      <Filter>3rdparty\tinygltf</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="maths\camera.cpp">
@@ -979,6 +994,9 @@
     </ClCompile>
     <ClCompile Include="common\jobsystem_tests.cpp">
       <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="3rdparty\tinygltf\tiny_gltf.cc">
+      <Filter>3rdparty\tinygltf</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

@@ -1,4 +1,4 @@
-/******************************************************************************
+﻿/******************************************************************************
  * The MIT License (MIT)
  *
  * Copyright (c) 2019-2025 Baldur Karlsson
@@ -33,37 +33,37 @@
 
 struct MapIntercept
 {
-  MapIntercept()
-  {
-    RDCEraseEl(app);
-    RDCEraseEl(d3d);
-    numRows = numSlices = 1;
-    MapType = D3D11_MAP_WRITE_DISCARD;
-    MapFlags = 0;
-    verifyWrite = false;
-  }
+    MapIntercept()
+    {
+        RDCEraseEl(app);
+        RDCEraseEl(d3d);
+        numRows = numSlices = 1;
+        MapType = D3D11_MAP_WRITE_DISCARD;
+        MapFlags = 0;
+        verifyWrite = false;
+    }
 
-  void SetAppMemory(void *appMemory);
-  void SetD3D(D3D11_MAPPED_SUBRESOURCE d3dMap);
-  void SetD3D(D3D11_SUBRESOURCE_DATA d3dMap);
+    void SetAppMemory(void* appMemory);
+    void SetD3D(D3D11_MAPPED_SUBRESOURCE d3dMap);
+    void SetD3D(D3D11_SUBRESOURCE_DATA d3dMap);
 
-  void InitWrappedResource(ID3D11Resource *res, UINT sub, void *appMemory);
+    void InitWrappedResource(ID3D11Resource* res, UINT sub, void* appMemory);
 
-  void Init(ID3D11Buffer *buf, void *appMemory);
-  void Init(ID3D11Texture1D *tex, UINT sub, void *appMemory);
-  void Init(ID3D11Texture2D *tex, UINT sub, void *appMemory);
-  void Init(ID3D11Texture3D *tex, UINT sub, void *appMemory);
+    void Init(ID3D11Buffer* buf, void* appMemory);
+    void Init(ID3D11Texture1D* tex, UINT sub, void* appMemory);
+    void Init(ID3D11Texture2D* tex, UINT sub, void* appMemory);
+    void Init(ID3D11Texture3D* tex, UINT sub, void* appMemory);
 
-  D3D11_MAPPED_SUBRESOURCE app, d3d;
-  int numRows, numSlices;
+    D3D11_MAPPED_SUBRESOURCE app, d3d;
+    int numRows, numSlices;
 
-  D3D11_MAP MapType;
-  UINT MapFlags;
+    D3D11_MAP MapType;
+    UINT MapFlags;
 
-  bool verifyWrite;
+    bool verifyWrite;
 
-  void CopyFromD3D();
-  void CopyToD3D(size_t RangeStart = 0, size_t RangeEnd = 0);
+    void CopyFromD3D();
+    void CopyToD3D(size_t RangeStart = 0, size_t RangeEnd = 0);
 };
 
 class WrappedID3D11DeviceContext;
@@ -72,325 +72,320 @@ class WrappedID3D11DeviceContext;
 class WrappedID3DUserDefinedAnnotation : public ID3DUserDefinedAnnotation
 {
 public:
-  WrappedID3DUserDefinedAnnotation() : m_Context(NULL) {}
-  void SetContext(WrappedID3D11DeviceContext *ctx) { m_Context = ctx; }
-  ULONG STDMETHODCALLTYPE AddRef();
-  ULONG STDMETHODCALLTYPE Release();
-  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppvObject);
+    WrappedID3DUserDefinedAnnotation() : m_Context(NULL) {}
+    void SetContext(WrappedID3D11DeviceContext* ctx) { m_Context = ctx; }
+    ULONG STDMETHODCALLTYPE AddRef();
+    ULONG STDMETHODCALLTYPE Release();
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject);
 
-  virtual INT STDMETHODCALLTYPE BeginEvent(LPCWSTR Name);
-  virtual INT STDMETHODCALLTYPE EndEvent();
-  virtual void STDMETHODCALLTYPE SetMarker(LPCWSTR Name);
-  virtual BOOL STDMETHODCALLTYPE GetStatus() { return TRUE; }
+    virtual INT STDMETHODCALLTYPE BeginEvent(LPCWSTR Name);
+    virtual INT STDMETHODCALLTYPE EndEvent();
+    virtual void STDMETHODCALLTYPE SetMarker(LPCWSTR Name);
+    virtual BOOL STDMETHODCALLTYPE GetStatus() { return TRUE; }
 private:
-  WrappedID3D11DeviceContext *m_Context;
+    WrappedID3D11DeviceContext* m_Context;
 };
 
 enum CaptureFailReason
 {
-  CaptureSucceeded = 0,
-  CaptureFailed_UncappedUnmap,
-  CaptureFailed_UncappedCmdlist,
+    CaptureSucceeded = 0,
+    CaptureFailed_UncappedUnmap,
+    CaptureFailed_UncappedCmdlist,
 };
 
 // a fake device child to be able to register a resource without needing a wrapper
 struct D3DDescriptorStore : public ID3D11DeviceChild
 {
 private:
-  ResourceId m_ID;
+    ResourceId m_ID;
 
 public:
-  D3DDescriptorStore(WrappedID3D11Device *device);
-  virtual ~D3DDescriptorStore() {}
+    D3DDescriptorStore(WrappedID3D11Device* device);
+    virtual ~D3DDescriptorStore() {}
 
-  ResourceId GetResourceID() { return m_ID; }
+    ResourceId GetResourceID() { return m_ID; }
 
-  ULONG STDMETHODCALLTYPE AddRef() { return 1; }
-  ULONG STDMETHODCALLTYPE Release() { return 1; }
-  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppvObject) { return E_NOTIMPL; }
-  void STDMETHODCALLTYPE GetDevice(ID3D11Device **ppDevice) {}
-  HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID guid, UINT *pDataSize, void *pData)
-  {
-    return E_NOTIMPL;
-  }
-  HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID guid, UINT DataSize, const void *pData)
-  {
-    return E_NOTIMPL;
-  }
-  HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID guid, const IUnknown *pData)
-  {
-    return E_NOTIMPL;
-  }
+    ULONG STDMETHODCALLTYPE AddRef() { return 1; }
+    ULONG STDMETHODCALLTYPE Release() { return 1; }
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) { return E_NOTIMPL; }
+    void STDMETHODCALLTYPE GetDevice(ID3D11Device** ppDevice) {}
+    HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID guid, UINT* pDataSize, void* pData)
+    {
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID guid, UINT DataSize, const void* pData)
+    {
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID guid, const IUnknown* pData)
+    {
+        return E_NOTIMPL;
+    }
 };
 
 class WrappedID3D11DeviceContext : public ID3D11DeviceContext4
 {
 private:
-  friend class WrappedID3D11DeviceContext;
-  friend class WrappedID3DUserDefinedAnnotation;
-  friend struct D3D11RenderState;
+    friend class WrappedID3D11DeviceContext;
+    friend class WrappedID3DUserDefinedAnnotation;
+    friend struct D3D11RenderState;
 
-  struct MappedResource
-  {
-    MappedResource(ResourceId res = ResourceId(), UINT sub = 0) : resource(res), subresource(sub) {}
-    ResourceId resource;
-    UINT subresource;
-
-    bool operator<(const MappedResource &o) const
+    struct MappedResource
     {
-      if(resource != o.resource)
-        return resource < o.resource;
+        MappedResource(ResourceId res = ResourceId(), UINT sub = 0) : resource(res), subresource(sub) {}
+        ResourceId resource;
+        UINT subresource;
 
-      return subresource < o.subresource;
+        bool operator<(const MappedResource& o) const
+        {
+            if (resource != o.resource)
+                return resource < o.resource;
+
+            return subresource < o.subresource;
+        }
+    };
+
+    // we manually implement ID3D11DeviceChild instead of using WrappedID3D11DeviceChild because the
+    // device contexts can be special
+    int32_t m_ExtRef;
+    int32_t m_IntRef;
+    std::set<ResourceId> m_DeferredDirty;
+    std::set<ResourceId> m_DeferredReferences;
+
+    std::set<ResourceId> m_HighTrafficResources;
+    std::map<MappedResource, MapIntercept> m_OpenMaps;
+
+    std::map<ResourceId, rdcarray<EventUsage>> m_ResourceUses;
+
+    WrappedID3D11Device* m_pDevice;
+    ID3D11DeviceContext* m_pRealContext;
+    ID3D11DeviceContext1* m_pRealContext1;
+    bool m_SetCBuffer1;
+
+    ID3D11DeviceContext2* m_pRealContext2;
+    ID3D11DeviceContext3* m_pRealContext3;
+    ID3D11DeviceContext4* m_pRealContext4;
+
+    WrappedID3D11VideoContext m_WrappedVideo;
+
+    D3D11_DEVICE_CONTEXT_TYPE m_Type;
+    bool m_NeedUpdateSubWorkaround;
+
+    WriteSerialiser m_ScratchSerialiser;
+    std::set<rdcstr> m_StringDB;
+
+    ResourceId m_CurContextId;
+    D3DDescriptorStore* m_DescriptorStore;
+
+    StreamReader* m_FrameReader = NULL;
+
+    std::map<ResourceId, size_t> m_MapResourceRecordAllocs;
+
+    ResourceId m_ResourceID;
+    D3D11ResourceRecord* m_ContextRecord;
+
+    CaptureState m_State;
+    CaptureFailReason m_FailureReason;
+    bool m_SuccessfulCapture;
+    bool m_EmptyCommandList;
+
+    bool m_MarkedActive = false;
+
+    inline void MarkAPIActive()
+    {
+        if (m_MarkedActive)
+            return;
+
+        RenderDoc::Inst().AddActiveDriver(RDCDriver::D3D11, false);
     }
-  };
 
-  // we manually implement ID3D11DeviceChild instead of using WrappedID3D11DeviceChild because the
-  // device contexts can be special
-  int32_t m_ExtRef;
-  int32_t m_IntRef;
-  std::set<ResourceId> m_DeferredDirty;
-  std::set<ResourceId> m_DeferredReferences;
+    bool m_DoStateVerify;
+    D3D11RenderState* m_CurrentPipelineState;
 
-  std::set<ResourceId> m_HighTrafficResources;
-  std::map<MappedResource, MapIntercept> m_OpenMaps;
+    D3D11RenderState* m_DeferredSavedState;
 
-  std::map<ResourceId, rdcarray<EventUsage>> m_ResourceUses;
+    rdcarray<APIEvent> m_CurEvents, m_Events;
+    bool m_AddedAction;
 
-  WrappedID3D11Device *m_pDevice;
-  ID3D11DeviceContext *m_pRealContext;
-  ID3D11DeviceContext1 *m_pRealContext1;
-  bool m_SetCBuffer1;
+    WrappedID3DUserDefinedAnnotation m_UserAnnotation;
+    int32_t m_MarkerIndentLevel;
 
-  ID3D11DeviceContext2 *m_pRealContext2;
-  ID3D11DeviceContext3 *m_pRealContext3;
-  ID3D11DeviceContext4 *m_pRealContext4;
-
-  WrappedID3D11VideoContext m_WrappedVideo;
-
-  D3D11_DEVICE_CONTEXT_TYPE m_Type;
-  bool m_NeedUpdateSubWorkaround;
-
-  WriteSerialiser m_ScratchSerialiser;
-  std::set<rdcstr> m_StringDB;
-
-  ResourceId m_CurContextId;
-  D3DDescriptorStore *m_DescriptorStore;
-
-  StreamReader *m_FrameReader = NULL;
-
-  std::map<ResourceId, size_t> m_MapResourceRecordAllocs;
-
-  ResourceId m_ResourceID;
-  D3D11ResourceRecord *m_ContextRecord;
-
-  CaptureState m_State;
-  CaptureFailReason m_FailureReason;
-  bool m_SuccessfulCapture;
-  bool m_EmptyCommandList;
-
-  bool m_MarkedActive = false;
-
-  inline void MarkAPIActive()
-  {
-    if(m_MarkedActive)
-      return;
-
-    RenderDoc::Inst().AddActiveDriver(RDCDriver::D3D11, false);
-  }
-
-  bool m_DoStateVerify;
-  D3D11RenderState *m_CurrentPipelineState;
-
-  D3D11RenderState *m_DeferredSavedState;
-
-  rdcarray<APIEvent> m_CurEvents, m_Events;
-  bool m_AddedAction;
-
-  WrappedID3DUserDefinedAnnotation m_UserAnnotation;
-  int32_t m_MarkerIndentLevel;
-
-  struct Annotation
-  {
-    enum
+    struct Annotation
     {
-      ANNOT_SETMARKER,
-      ANNOT_BEGINEVENT,
-      ANNOT_ENDEVENT
-    } m_Type;
-    uint32_t m_Col;
-    rdcstr m_Name;
-  };
-  rdcarray<Annotation> m_AnnotationQueue;
-  Threading::CriticalSection m_AnnotLock;
+        enum
+        {
+            ANNOT_SETMARKER,
+            ANNOT_BEGINEVENT,
+            ANNOT_ENDEVENT
+        } m_Type;
+        uint32_t m_Col;
+        rdcstr m_Name;
+    };
+    rdcarray<Annotation> m_AnnotationQueue;
+    Threading::CriticalSection m_AnnotLock;
 
-  uint64_t m_TimeBase = 0;
-  double m_TimeFrequency = 1.0f;
-  SDFile *m_StructuredFile = NULL;
+    uint64_t m_TimeBase = 0;
+    double m_TimeFrequency = 1.0f;
+    SDFile* m_StructuredFile = NULL;
 
-  uint64_t m_CurChunkOffset;
-  SDChunkMetaData m_ChunkMetadata;
-  uint32_t m_CurEventID, m_CurActionID;
-  D3D11Chunk m_LastChunk;
+    uint64_t m_CurChunkOffset;
+    SDChunkMetaData m_ChunkMetadata;
+    uint32_t m_CurEventID, m_CurActionID;
+    D3D11Chunk m_LastChunk;
 
-  RDResult m_FailedReplayResult = ResultCode::APIReplayFailed;
+    RDResult m_FailedReplayResult = ResultCode::APIReplayFailed;
 
-  ActionDescription m_ParentAction;
-  std::map<ResourceId, ActionDescription> m_CmdLists;
+    ActionDescription m_ParentAction;
+    std::map<ResourceId, ActionDescription> m_CmdLists;
 
-  rdcarray<ActionDescription *> m_ActionStack;
+    rdcarray<ActionDescription*> m_ActionStack;
 
-  // mc tag begin
-  rdcarray<ActionResDescription> m_ActionResStack;
-  // mc tag end
+    D3D11ResourceManager* GetResourceManager();
+    static rdcstr GetChunkName(uint32_t idx);
 
-  D3D11ResourceManager *GetResourceManager();
-  static rdcstr GetChunkName(uint32_t idx);
+    template <typename SerialiserType>
+    void Serialise_DebugMessages(SerialiserType& ser);
 
-  template <typename SerialiserType>
-  void Serialise_DebugMessages(SerialiserType &ser);
+    void DrainAnnotationQueue();
+    void LatchSOProperties();
 
-  void DrainAnnotationQueue();
-  void LatchSOProperties();
+    void AddUsage(ActionDescription& a);
 
-  void AddUsage(const ActionDescription &a);
+    void AddEvent();
+    void AddAction(const ActionDescription& a);
 
-  void AddEvent();
-  void AddAction(const ActionDescription &a);
+    void RecordIndexBindStats(ID3D11Buffer* Buffer);
+    void RecordVertexBindStats(UINT NumBuffers, ID3D11Buffer* const Buffers[]);
+    void RecordLayoutBindStats(ID3D11InputLayout* Layout);
+    void RecordConstantStats(ShaderStage stage, UINT NumBuffers, ID3D11Buffer* const Buffers[]);
+    void RecordResourceStats(ShaderStage stage, UINT NumResources,
+        ID3D11ShaderResourceView* const Resources[]);
+    void RecordSamplerStats(ShaderStage stage, UINT NumSamplers, ID3D11SamplerState* const Samplers[]);
+    void RecordUpdateStats(ID3D11Resource* res, uint32_t Size, bool Server);
+    void RecordDrawStats(bool instanced, bool indirect, UINT InstanceCount);
+    void RecordDispatchStats(bool indirect);
+    void RecordShaderStats(ShaderStage stage, ID3D11DeviceChild* Current, ID3D11DeviceChild* Shader);
+    void RecordBlendStats(ID3D11BlendState* Blend, const FLOAT BlendFactor[4], UINT SampleMask);
+    void RecordDepthStencilStats(ID3D11DepthStencilState* DepthStencil, UINT StencilRef);
+    void RecordRasterizationStats(ID3D11RasterizerState* Rasterizer);
+    void RecordViewportStats(UINT NumViewports, const D3D11_VIEWPORT* viewports);
+    void RecordScissorStats(UINT NumRects, const D3D11_RECT* rects);
+    void RecordOutputMergerStats(UINT NumRTVs, ID3D11RenderTargetView* RTVs[],
+        ID3D11DepthStencilView* DSV, UINT UAVStartSlot, UINT NumUAVs,
+        ID3D11UnorderedAccessView* UAVs[]);
 
-  void RecordIndexBindStats(ID3D11Buffer *Buffer);
-  void RecordVertexBindStats(UINT NumBuffers, ID3D11Buffer *const Buffers[]);
-  void RecordLayoutBindStats(ID3D11InputLayout *Layout);
-  void RecordConstantStats(ShaderStage stage, UINT NumBuffers, ID3D11Buffer *const Buffers[]);
-  void RecordResourceStats(ShaderStage stage, UINT NumResources,
-                           ID3D11ShaderResourceView *const Resources[]);
-  void RecordSamplerStats(ShaderStage stage, UINT NumSamplers, ID3D11SamplerState *const Samplers[]);
-  void RecordUpdateStats(ID3D11Resource *res, uint32_t Size, bool Server);
-  void RecordDrawStats(bool instanced, bool indirect, UINT InstanceCount);
-  void RecordDispatchStats(bool indirect);
-  void RecordShaderStats(ShaderStage stage, ID3D11DeviceChild *Current, ID3D11DeviceChild *Shader);
-  void RecordBlendStats(ID3D11BlendState *Blend, const FLOAT BlendFactor[4], UINT SampleMask);
-  void RecordDepthStencilStats(ID3D11DepthStencilState *DepthStencil, UINT StencilRef);
-  void RecordRasterizationStats(ID3D11RasterizerState *Rasterizer);
-  void RecordViewportStats(UINT NumViewports, const D3D11_VIEWPORT *viewports);
-  void RecordScissorStats(UINT NumRects, const D3D11_RECT *rects);
-  void RecordOutputMergerStats(UINT NumRTVs, ID3D11RenderTargetView *RTVs[],
-                               ID3D11DepthStencilView *DSV, UINT UAVStartSlot, UINT NumUAVs,
-                               ID3D11UnorderedAccessView *UAVs[]);
+    ////////////////////////////////////////////////////////////////
+    // implement InterceptorSystem privately, since it is not thread safe (like all other context
+    // functions)
 
-////////////////////////////////////////////////////////////////
-// implement InterceptorSystem privately, since it is not thread safe (like all other context
-// functions)
-
-// this is defined as a macro so that we can re-use it to explicitly instantiate these functions as
-// templates in the wrapper definition file.
+    // this is defined as a macro so that we can re-use it to explicitly instantiate these functions as
+    // templates in the wrapper definition file.
 #define SERIALISED_ID3D11CONTEXT_MARKER_FUNCTIONS()                                          \
   IMPLEMENT_FUNCTION_SERIALISED(void, SetMarker, uint32_t Color, const wchar_t *MarkerName); \
   IMPLEMENT_FUNCTION_SERIALISED(int, PushMarker, uint32_t Color, const wchar_t *MarkerName); \
   IMPLEMENT_FUNCTION_SERIALISED(int, PopMarker);
 
-  SERIALISED_ID3D11CONTEXT_MARKER_FUNCTIONS();
+    SERIALISED_ID3D11CONTEXT_MARKER_FUNCTIONS();
 
 public:
-  ALLOCATE_WITH_WRAPPED_POOL(WrappedID3D11DeviceContext);
+    ALLOCATE_WITH_WRAPPED_POOL(WrappedID3D11DeviceContext);
 
-  WrappedID3D11DeviceContext(WrappedID3D11Device *realDevice, ID3D11DeviceContext *context);
-  virtual ~WrappedID3D11DeviceContext();
+    WrappedID3D11DeviceContext(WrappedID3D11Device* realDevice, ID3D11DeviceContext* context);
+    virtual ~WrappedID3D11DeviceContext();
 
-  void VerifyState();
+    void VerifyState();
 
-  ResourceId GetDescriptorsID()
-  {
-    return m_DescriptorStore ? m_DescriptorStore->GetResourceID() : ResourceId();
-  }
+    ResourceId GetDescriptorsID()
+    {
+        return m_DescriptorStore ? m_DescriptorStore->GetResourceID() : ResourceId();
+    }
 
-  void BeginFrame();
-  void EndFrame();
+    void BeginFrame();
+    void EndFrame();
 
-  template <typename SerialiserType>
-  bool Serialise_BeginCaptureFrame(SerialiserType &ser);
-  void BeginCaptureFrame();
-  void EndCaptureFrame();
+    template <typename SerialiserType>
+    bool Serialise_BeginCaptureFrame(SerialiserType& ser);
+    void BeginCaptureFrame();
+    void EndCaptureFrame();
 
-  void MarkDirtyResource(ResourceId id);
+    void MarkDirtyResource(ResourceId id);
 
-  // insert a fake chunk just to store these parameters
-  IMPLEMENT_FUNCTION_SERIALISED(void, Present, UINT SyncInterval, UINT Flags);
+    // insert a fake chunk just to store these parameters
+    IMPLEMENT_FUNCTION_SERIALISED(void, Present, UINT SyncInterval, UINT Flags);
 
-  void CleanupCapture();
-  bool ShadowStorageInUse(D3D11ResourceRecord *record);
+    void CleanupCapture();
+    bool ShadowStorageInUse(D3D11ResourceRecord* record);
 
-  bool HasSuccessfulCapture(CaptureFailReason &reason)
-  {
-    reason = m_FailureReason;
-    return m_SuccessfulCapture && m_ContextRecord->NumChunks() > 0;
-  }
+    bool HasSuccessfulCapture(CaptureFailReason& reason)
+    {
+        reason = m_FailureReason;
+        return m_SuccessfulCapture && m_ContextRecord->NumChunks() > 0;
+    }
 
-  void AttemptCapture();
-  void FinishCapture();
+    void AttemptCapture();
+    void FinishCapture();
 
-  D3D11RenderState *GetCurrentPipelineState() { return m_CurrentPipelineState; }
-  ResourceId GetResourceID() { return m_ResourceID; }
-  D3D11ResourceRecord *GetResourceRecord() { return m_ContextRecord; }
-  ID3D11DeviceContext *GetReal() { return m_pRealContext; }
-  ID3D11DeviceContext1 *GetReal1() { return m_pRealContext1; }
-  WriteSerialiser &GetScratchSerialiser() { return m_ScratchSerialiser; }
-  bool IsFL11_1();
+    D3D11RenderState* GetCurrentPipelineState() { return m_CurrentPipelineState; }
+    ResourceId GetResourceID() { return m_ResourceID; }
+    D3D11ResourceRecord* GetResourceRecord() { return m_ContextRecord; }
+    ID3D11DeviceContext* GetReal() { return m_pRealContext; }
+    ID3D11DeviceContext1* GetReal1() { return m_pRealContext1; }
+    WriteSerialiser& GetScratchSerialiser() { return m_ScratchSerialiser; }
+    bool IsFL11_1();
 
-  bool ProcessChunk(ReadSerialiser &ser, D3D11Chunk chunk);
-  RDResult ReplayLog(CaptureState readType, uint32_t startEventID, uint32_t endEventID, bool partial);
-  void SetFrameReader(StreamReader *reader) { m_FrameReader = reader; }
-  void MarkResourceReferenced(ResourceId id, FrameRefType refType);
-  // mc tag begin
-  rdcarray<ActionResDescription> &GetActionResDescription() { return m_ActionResStack; }
-  uint32_t GetMaxEID() { return m_Events.back().eventId; }
-  // mc tag end
-  rdcarray<EventUsage> GetUsage(ResourceId id) { return m_ResourceUses[id]; }
-  void ClearMaps();
+    bool ProcessChunk(ReadSerialiser& ser, D3D11Chunk chunk);
+    RDResult ReplayLog(CaptureState readType, uint32_t startEventID, uint32_t endEventID, bool partial);
+    void SetFrameReader(StreamReader* reader) { m_FrameReader = reader; }
+    void MarkResourceReferenced(ResourceId id, FrameRefType refType);
+    // mc tag begin
+    uint32_t GetMaxEID() { return m_Events.back().eventId; }
+    // mc tag end
+    rdcarray<EventUsage> GetUsage(ResourceId id) { return m_ResourceUses[id]; }
+    void ClearMaps();
 
-  uint32_t GetEventID() { return m_CurEventID; }
-  const APIEvent &GetEvent(uint32_t eventId) const;
+    uint32_t GetEventID() { return m_CurEventID; }
+    const APIEvent& GetEvent(uint32_t eventId) const;
 
-  const ActionDescription &GetRootDraw() { return m_ParentAction; }
-  void ThreadSafe_SetMarker(uint32_t col, const wchar_t *name);
-  int ThreadSafe_BeginEvent(uint32_t col, const wchar_t *name);
-  int ThreadSafe_EndEvent();
+    const ActionDescription& GetRootDraw() { return m_ParentAction; }
+    void ThreadSafe_SetMarker(uint32_t col, const wchar_t* name);
+    int ThreadSafe_BeginEvent(uint32_t col, const wchar_t* name);
+    int ThreadSafe_EndEvent();
 
-  // internal addref/release
-  void IntAddRef();
-  void IntRelease();
+    // internal addref/release
+    void IntAddRef();
+    void IntRelease();
 
-  //////////////////////////////
-  // implement IUnknown
-  ULONG STDMETHODCALLTYPE AddRef();
-  ULONG STDMETHODCALLTYPE Release();
-  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppvObject);
+    //////////////////////////////
+    // implement IUnknown
+    ULONG STDMETHODCALLTYPE AddRef();
+    ULONG STDMETHODCALLTYPE Release();
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject);
 
-  //////////////////////////////
-  // implement ID3D11DeviceChild
+    //////////////////////////////
+    // implement ID3D11DeviceChild
 
-  virtual HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID Name, UINT DataSize, const void *pData)
-  {
-    return m_pRealContext->SetPrivateData(Name, DataSize, pData);
-  }
+    virtual HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID Name, UINT DataSize, const void* pData)
+    {
+        return m_pRealContext->SetPrivateData(Name, DataSize, pData);
+    }
 
-  virtual HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID Name, const IUnknown *pUnknown)
-  {
-    return m_pRealContext->SetPrivateDataInterface(Name, pUnknown);
-  }
+    virtual HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID Name, const IUnknown* pUnknown)
+    {
+        return m_pRealContext->SetPrivateDataInterface(Name, pUnknown);
+    }
 
-  virtual HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID Name, UINT *pDataSize, void *pData)
-  {
-    return m_pRealContext->GetPrivateData(Name, pDataSize, pData);
-  }
+    virtual HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID Name, UINT* pDataSize, void* pData)
+    {
+        return m_pRealContext->GetPrivateData(Name, pDataSize, pData);
+    }
 
-  virtual void STDMETHODCALLTYPE GetDevice(ID3D11Device **ppDevice);
+    virtual void STDMETHODCALLTYPE GetDevice(ID3D11Device** ppDevice);
 
-//////////////////////////////
-// implement ID3D11DeviceContext
+    //////////////////////////////
+    // implement ID3D11DeviceContext
 
-// this is defined as a macro so that we can re-use it to explicitly instantiate these functions as
-// templates in the wrapper definition file.
+    // this is defined as a macro so that we can re-use it to explicitly instantiate these functions as
+    // templates in the wrapper definition file.
 #define SERIALISED_ID3D11CONTEXT_FUNCTIONS()                                                        \
   IMPLEMENT_FUNCTION_SERIALISED(virtual void STDMETHODCALLTYPE, VSSetConstantBuffers,               \
                                 UINT StartSlot, UINT NumBuffers,                                    \
@@ -775,13 +770,13 @@ public:
   /* Fake function used to restore state after FinishCommandList */                                 \
   IMPLEMENT_FUNCTION_SERIALISED(void, PostFinishCommandListSet, ID3D11CommandList *ppCommandList);
 
-  SERIALISED_ID3D11CONTEXT_FUNCTIONS();
+    SERIALISED_ID3D11CONTEXT_FUNCTIONS();
 
-//////////////////////////////
-// implement ID3D11DeviceContext1
+    //////////////////////////////
+    // implement ID3D11DeviceContext1
 
-// this is defined as a macro so that we can re-use it to explicitly instantiate these functions as
-// templates in the wrapper definition file.
+    // this is defined as a macro so that we can re-use it to explicitly instantiate these functions as
+    // templates in the wrapper definition file.
 #define SERIALISED_ID3D11CONTEXT1_FUNCTIONS()                                                      \
   IMPLEMENT_FUNCTION_SERIALISED(virtual void STDMETHODCALLTYPE, UpdateSubresource1,                \
                                 ID3D11Resource *pDstResource, UINT DstSubresource,                 \
@@ -863,13 +858,13 @@ public:
   IMPLEMENT_FUNCTION_SERIALISED(virtual void STDMETHODCALLTYPE, DiscardView1,                      \
                                 ID3D11View *pResourceView, const D3D11_RECT *pRects, UINT NumRects);
 
-  SERIALISED_ID3D11CONTEXT1_FUNCTIONS();
+    SERIALISED_ID3D11CONTEXT1_FUNCTIONS();
 
-//////////////////////////////
-// implement ID3D11DeviceContext2
+    //////////////////////////////
+    // implement ID3D11DeviceContext2
 
-// this is defined as a macro so that we can re-use it to explicitly instantiate these functions as
-// templates in the wrapper definition file.
+    // this is defined as a macro so that we can re-use it to explicitly instantiate these functions as
+    // templates in the wrapper definition file.
 #define SERIALISED_ID3D11CONTEXT2_FUNCTIONS()                                                      \
   IMPLEMENT_FUNCTION_SERIALISED(                                                                   \
       virtual HRESULT STDMETHODCALLTYPE, UpdateTileMappings, ID3D11Resource *pTiledResource,       \
@@ -904,29 +899,29 @@ public:
                                 ID3D11DeviceChild *pTiledResourceOrViewAccessBeforeBarrier,        \
                                 ID3D11DeviceChild *pTiledResourceOrViewAccessAfterBarrier);
 
-  SERIALISED_ID3D11CONTEXT2_FUNCTIONS();
+    SERIALISED_ID3D11CONTEXT2_FUNCTIONS();
 
-  virtual BOOL STDMETHODCALLTYPE IsAnnotationEnabled();
+    virtual BOOL STDMETHODCALLTYPE IsAnnotationEnabled();
 
-  virtual void STDMETHODCALLTYPE SetMarkerInt(LPCWSTR pLabel, INT Data);
+    virtual void STDMETHODCALLTYPE SetMarkerInt(LPCWSTR pLabel, INT Data);
 
-  virtual void STDMETHODCALLTYPE BeginEventInt(LPCWSTR pLabel, INT Data);
+    virtual void STDMETHODCALLTYPE BeginEventInt(LPCWSTR pLabel, INT Data);
 
-  virtual void STDMETHODCALLTYPE EndEvent();
+    virtual void STDMETHODCALLTYPE EndEvent();
 
-  //////////////////////////////
-  // implement ID3D11DeviceContext3
+    //////////////////////////////
+    // implement ID3D11DeviceContext3
 
-  virtual void STDMETHODCALLTYPE Flush1(D3D11_CONTEXT_TYPE ContextType, HANDLE hEvent);
+    virtual void STDMETHODCALLTYPE Flush1(D3D11_CONTEXT_TYPE ContextType, HANDLE hEvent);
 
-  virtual void STDMETHODCALLTYPE SetHardwareProtectionState(BOOL HwProtectionEnable);
+    virtual void STDMETHODCALLTYPE SetHardwareProtectionState(BOOL HwProtectionEnable);
 
-  virtual void STDMETHODCALLTYPE GetHardwareProtectionState(BOOL *pHwProtectionEnable);
+    virtual void STDMETHODCALLTYPE GetHardwareProtectionState(BOOL* pHwProtectionEnable);
 
-  //////////////////////////////
-  // implement ID3D11DeviceContext4
+    //////////////////////////////
+    // implement ID3D11DeviceContext4
 
-  virtual HRESULT STDMETHODCALLTYPE Signal(ID3D11Fence *pFence, UINT64 Value);
+    virtual HRESULT STDMETHODCALLTYPE Signal(ID3D11Fence* pFence, UINT64 Value);
 
-  virtual HRESULT STDMETHODCALLTYPE Wait(ID3D11Fence *pFence, UINT64 Value);
+    virtual HRESULT STDMETHODCALLTYPE Wait(ID3D11Fence* pFence, UINT64 Value);
 };

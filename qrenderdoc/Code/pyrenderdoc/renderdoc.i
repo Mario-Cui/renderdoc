@@ -1,4 +1,4 @@
-%module renderdoc
+﻿%module renderdoc
 
 %feature("autodoc", "0");
 %feature("autodoc:noret", "1");
@@ -425,7 +425,6 @@ TEMPLATE_ARRAY_INSTANTIATE(rdcarray, ShaderChangeStats)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, ResourceBindStats)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, SamplerBindStats)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, ConstantBindStats)
-TEMPLATE_ARRAY_INSTANTIATE(rdcarray, ActionResDescription)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, DescriptorRange)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, Descriptor)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, SamplerDescriptor)

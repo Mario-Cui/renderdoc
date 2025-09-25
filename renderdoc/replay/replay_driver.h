@@ -188,6 +188,12 @@ public:
   virtual MeshFormat GetPostVSBuffers(uint32_t eventId, uint32_t instID, uint32_t viewID,
                                       MeshDataStage stage) = 0;
 
+  virtual bool GetRayDispatchInfos(uint32_t eventId, rdcarray<RayInvocationInfo> *rayInvocationDatas,
+                                   rdcarray<RayGenerateInfo> *rayGenerateDatas)
+  {
+    return false;
+  }
+  
   // this is a helper/batch query for the above, that's only necessary because Android is a shit
   // platform and its proxying has significant per-call overhead. This is overridden in the proxy,
   // but otherwise will call to this default implementation

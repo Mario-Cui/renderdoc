@@ -160,9 +160,10 @@ bool WrappedID3D12Device::Serialise_CreateStateObject(SerialiserType &ser,
     // we steal the serialised descriptor here so we can pass it to jobs without its contents and
     // all of the allocated structures and arrays being deserialised. We add a job which waits on
     // the compiles then deserialises this manually.
+    /*mc tag
     D3D12_STATE_OBJECT_DESC OrigDescriptor = Descriptor;
     Descriptor = {};
-
+    */
     m_UsedDXIL = true;
 
     if(!m_pDevice5)
@@ -178,14 +179,19 @@ bool WrappedID3D12Device::Serialise_CreateStateObject(SerialiserType &ser,
     wrapped->exports =
         new D3D12ShaderExportDatabase(pStateObject, GetResourceManager()->GetRTManager());
 
+    //mc tag begin
+    wrapped->origDescriptor = Descriptor;
+    Descriptor = {};
+    //mc tag end
+    
     // TODO: Apply m_GlobalEXTUAV, m_GlobalEXTUAVSpace for processing extensions in the DXBC files?
 
     AddResource(pStateObject, ResourceType::PipelineState, "State Object");
 
     rdcarray<Threading::JobSystem::Job *> parents;
 
-    const D3D12_STATE_SUBOBJECT *subs = OrigDescriptor.pSubobjects;
-    for(UINT i = 0; i < OrigDescriptor.NumSubobjects; i++)
+    const D3D12_STATE_SUBOBJECT *subs = wrapped->origDescriptor.pSubobjects;
+    for(UINT i = 0; i < wrapped->origDescriptor.NumSubobjects; i++)
     {
       if(subs[i].Type == D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE ||
          subs[i].Type == D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE)
@@ -208,8 +214,8 @@ bool WrappedID3D12Device::Serialise_CreateStateObject(SerialiserType &ser,
 
     if(Replay_Debug_SingleThreadedCompilation())
     {
-      RDResult res = DeferredStateObjCompile(m_pDevice5, OrigDescriptor, wrapped);
-      Deserialise(OrigDescriptor);
+      RDResult res = DeferredStateObjCompile(m_pDevice5, wrapped->origDescriptor, wrapped);
+      // Deserialise(wrapped->origDescriptor); //mc tag
 
       if(res != ResultCode::Succeeded)
       {
@@ -220,13 +226,13 @@ bool WrappedID3D12Device::Serialise_CreateStateObject(SerialiserType &ser,
     else
     {
       wrapped->deferredJob = Threading::JobSystem::AddJob(
-          [wrappedD3D12 = this, device5 = m_pDevice5, OrigDescriptor, wrapped]() {
+          [wrappedD3D12 = this, device5 = m_pDevice5, wrapped]() {
             PerformanceTimer timer;
             wrappedD3D12->CheckDeferredResult(
-                DeferredStateObjCompile(device5, OrigDescriptor, wrapped));
+                DeferredStateObjCompile(device5, wrapped->origDescriptor, wrapped));
             wrappedD3D12->AddDeferredTime(timer.GetMilliseconds());
 
-            Deserialise(OrigDescriptor);
+            // Deserialise(wrapped->origDescriptor); //mc tag
           },
           parents);
     }

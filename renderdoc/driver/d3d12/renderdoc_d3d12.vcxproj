@@ -23,6 +23,7 @@
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>renderdoc_d3d12</RootNamespace>
     <ProjectName>d3d12</ProjectName>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(SolutionDir)\util\WindowsSDKTarget.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -30,7 +31,7 @@
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v140</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)'=='Release'" Label="Configuration">
     <WholeProgramOptimization>true</WholeProgramOptimization>
@@ -139,6 +140,7 @@
     <ClCompile Include="d3d12_overlay.cpp" />
     <ClCompile Include="d3d12_pixelhistory.cpp" />
     <ClCompile Include="d3d12_postvs.cpp" />
+    <ClCompile Include="d3d12_post_raytracing.cpp" />
     <ClCompile Include="d3d12_rendermesh.cpp" />
     <ClCompile Include="d3d12_rendertext.cpp" />
     <ClCompile Include="d3d12_rendertexture.cpp" />

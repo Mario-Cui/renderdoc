@@ -1026,7 +1026,7 @@ bool WrappedID3D11DeviceContext::ProcessChunk(ReadSerialiser &ser, D3D11Chunk ch
   return ret;
 }
 
-void WrappedID3D11DeviceContext::AddUsage(const ActionDescription &a)
+void WrappedID3D11DeviceContext::AddUsage(ActionDescription &a)
 {
   const D3D11RenderState *pipe = m_CurrentPipelineState;
   uint32_t e = a.eventId;
@@ -1055,6 +1055,26 @@ void WrappedID3D11DeviceContext::AddUsage(const ActionDescription &a)
   const D3D11RenderState::Shader *shArr[NumShaderStages] = {
       &pipe->VS, &pipe->HS, &pipe->DS, &pipe->GS, &pipe->PS, &pipe->CS,
   };
+
+  // mc tag begin
+
+  auto rm = m_pDevice->GetResourceManager();
+
+  if (!isDispatch)
+  {
+    a.shaders[0] = rm->GetUnreplacedOriginalID(GetIDForDeviceChild(pipe->VS.Object));
+    a.shaders[1] = rm->GetUnreplacedOriginalID(GetIDForDeviceChild(pipe->HS.Object));
+    a.shaders[2] = rm->GetUnreplacedOriginalID(GetIDForDeviceChild(pipe->DS.Object));
+    a.shaders[3] = rm->GetUnreplacedOriginalID(GetIDForDeviceChild(pipe->GS.Object));
+    a.shaders[4] = rm->GetUnreplacedOriginalID(GetIDForDeviceChild(pipe->PS.Object));
+  }
+  else
+  {
+    a.shaders[5] = rm->GetUnreplacedOriginalID(GetIDForDeviceChild(pipe->CS.Object));
+  }
+
+  // mc tag end
+  
 
   int firstShader = 0, numShaders = 5;
 

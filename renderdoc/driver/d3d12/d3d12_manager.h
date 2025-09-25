@@ -1272,6 +1272,16 @@ public:
                                               UINT64 ArgumentBufferOffset,
                                               ID3D12Resource *pCountBuffer, UINT64 CountBufferOffset);
 
+  //mc tag begin
+
+  const PatchedRayDispatch &GetLastPatchedRayDispatch() const { return m_LastPatchedRayDispatch; }
+  const rdcarray<D3D12ShaderExportDatabase *> &GetExportDataBases() const
+  {
+    return m_ExportDatabases;
+  }
+  //mc tag end 
+
+  
   void AddPendingASBuilds(ID3D12Fence *fence, UINT64 waitValue,
                           const rdcarray<std::function<bool()>> &callbacks);
   void TickASManagement();
@@ -1435,6 +1445,10 @@ private:
   };
   Threading::CriticalSection m_PendingASBuildsLock;
   rdcarray<PendingASBuild> m_PendingASBuilds;
+
+  //mc tag begin
+  PatchedRayDispatch m_LastPatchedRayDispatch = {};
+  //mc tag end 
 };
 
 struct D3D12ResourceManagerConfiguration

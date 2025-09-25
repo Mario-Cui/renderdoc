@@ -1020,3 +1020,22 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_EndProfileRegion()
 {
   Superluminal::EndProfileRange();
 }
+
+#include "api/replay/external_config.h"
+static ExternalConfigParams g_ExternalConfigParams = {};
+extern "C" RENDERDOC_API void RENDERDOC_CC
+RENDERDOC_SetExternalConfig(const ExternalConfigParams *configParams)
+{
+  if(nullptr != configParams)
+  {
+    g_ExternalConfigParams = *configParams;
+  }
+}
+
+extern "C" RENDERDOC_API const ExternalConfigParams *RENDERDOC_CC RENDERDOC_GetExternalConfig()
+{
+  return &g_ExternalConfigParams;
+}
+
+
+

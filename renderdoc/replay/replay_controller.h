@@ -247,7 +247,8 @@ public:
   void Shutdown();
 
   bool FatalErrorCheck();
-
+   bool GetRayDispatchInfos(uint32_t eventId, rdcarray<RayInvocationInfo> *rayInvocationInfos,
+                                   rdcarray<RayGenerateInfo> *rayGenerateInfos);
 private:
   virtual ~ReplayController();
   RDResult PostCreateInit(IReplayDriver *device, RDCFile *rdc);

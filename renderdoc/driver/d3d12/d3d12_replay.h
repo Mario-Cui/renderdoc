@@ -44,6 +44,7 @@ namespace DXBC
 {
 class DXBCContainer;
 };
+
 namespace DXDebug
 {
 struct InputFetcher;
@@ -66,8 +67,8 @@ struct D3D12FeedbackBindIdentifier
   size_t rootEl;
   size_t rangeIndex;
   UINT descIndex;
-  ShaderStage shaderStage;    // Only used for direct access views
-  BindType bindType;          // Only used for direct access views
+  ShaderStage shaderStage; // Only used for direct access views
+  BindType bindType;       // Only used for direct access views
   bool directAccess;
 
   bool operator<(const D3D12FeedbackBindIdentifier &o) const
@@ -147,11 +148,13 @@ public:
 
   FrameRecord &WriteFrameRecord() { return m_FrameRecord; }
   FrameRecord GetFrameRecord() { return m_FrameRecord; }
+
   void SetPipelineStates(D3D11Pipe::State *d3d11, D3D12Pipe::State *d3d12, GLPipe::State *gl,
                          VKPipe::State *vk)
   {
     m_D3D12PipelineState = d3d12;
   }
+
   void SavePipelineState(uint32_t eventId);
   rdcarray<Descriptor> GetDescriptors(ResourceId descriptorStore,
                                       const rdcarray<DescriptorRange> &ranges);
@@ -159,7 +162,8 @@ public:
                                                     const rdcarray<DescriptorRange> &ranges);
   rdcarray<DescriptorAccess> GetDescriptorAccess(uint32_t eventId);
   rdcarray<DescriptorLogicalLocation> GetDescriptorLocations(ResourceId descriptorStore,
-                                                             const rdcarray<DescriptorRange> &ranges);
+                                                             const rdcarray<DescriptorRange> &
+                                                             ranges);
   void FreeTargetResource(ResourceId id);
   void FreeCustomShader(ResourceId id);
 
@@ -192,6 +196,13 @@ public:
   void InitPostMSBuffers(uint32_t eventId);
   void InitPostVSBuffers(const rdcarray<uint32_t> &passEvents);
 
+  //mc tag begin
+  bool InitPostRaytracingInvocations(uint32_t eventId, rdcarray<RayInvocationInfo> *invocations,
+                                   rdcarray<RayGenerateInfo> *rayGenerateDatas);
+  bool GetRayDispatchInfos(uint32_t eventId, rdcarray<RayInvocationInfo> *rayInvocationDatas,
+                           rdcarray<RayGenerateInfo> *rayGenerateDatas);
+//mc tag end
+
   // indicates that EID alias is the same as eventId
   void AliasPostVSBuffers(uint32_t eventId, uint32_t alias) { m_PostVSAlias[alias] = eventId; }
   ResourceId GetLiveID(ResourceId id);
@@ -215,11 +226,14 @@ public:
   {
     return {ShaderEncoding::DXBC, ShaderEncoding::DXIL, ShaderEncoding::HLSL};
   }
+
   rdcarray<ShaderSourcePrefix> GetCustomShaderSourcePrefixes();
+
   rdcarray<ShaderEncoding> GetTargetShaderEncodings()
   {
     return {ShaderEncoding::DXBC, ShaderEncoding::DXIL, ShaderEncoding::HLSL};
   }
+
   void BuildTargetShader(ShaderEncoding sourceEncoding, const bytebuf &source, const rdcstr &entry,
                          const ShaderCompileFlags &compileFlags, ShaderStage type, ResourceId &id,
                          rdcstr &errors);
@@ -252,7 +266,8 @@ public:
                             rdcstr entryPoint, uint32_t cbufSlot, rdcarray<ShaderVariable> &outvars,
                             const bytebuf &data);
 
-  rdcarray<PixelModification> PixelHistory(rdcarray<EventUsage> events, ResourceId target, uint32_t x,
+  rdcarray<PixelModification> PixelHistory(rdcarray<EventUsage> events, ResourceId target,
+                                           uint32_t x,
                                            uint32_t y, const Subresource &sub, CompType typeCast);
 
   ID3DBlob *CompileShaderDebugFetcher(const DXBC::DXBCContainer *dxbc, const rdcstr &hlsl);
@@ -285,7 +300,11 @@ public:
 
   RenderOutputSubresource GetRenderOutputSubresource(ResourceId id);
   bool IsRenderOutput(ResourceId id) { return GetRenderOutputSubresource(id).mip != ~0U; }
-  void FileChanged() {}
+
+  void FileChanged()
+  {
+  }
+
   AMDCounters *GetAMDCounters() { return m_pAMDCounters; }
   void PatchQuadWritePS(D3D12_EXPANDED_PIPELINE_STATE_STREAM_DESC &pipeDesc, uint32_t regSpace,
                         bool dxil);
@@ -340,9 +359,11 @@ private:
         uint32_t numIndices;
         uint32_t ampDispatchSizeX;
       };
+
       union
       {
         uint32_t numVerts;
+
         struct
         {
           uint16_t y;

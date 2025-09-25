@@ -582,6 +582,7 @@
     <ClInclude Include="core\rdcbytetrie.h">
       <Filter>Core</Filter>
     </ClInclude>
+    <ClInclude Include="api\replay\external_config.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="maths\camera.cpp">

@@ -1866,7 +1866,7 @@ PatchedRayDispatch D3D12RTManager::PatchRayDispatch(ID3D12GraphicsCommandList4 *
         m_TimerReadbackBuffer->Resource(),
         m_TimerReadbackBuffer->Offset() + sizeof(uint64_t) * ret.resources.query);
   }
-
+  m_LastPatchedRayDispatch = ret;
   return ret;
 }
 
@@ -2193,7 +2193,7 @@ PatchedRayDispatch D3D12RTManager::PatchIndirectRayDispatch(
     // only one execute is allowed per command signature, if it's ray tracing and we're auditing then turn it off
     MaxCommandCount = 0;
   }
-
+  m_LastPatchedRayDispatch = ret;
   return ret;
 }
 

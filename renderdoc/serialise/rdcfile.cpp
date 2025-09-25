@@ -32,6 +32,9 @@
 #include "lz4io.h"
 #include "zstdio.h"
 
+
+
+
 // not provided by tinyexr, just do by hand
 bool is_exr_file(const byte *headerBuffer, size_t size)
 {
@@ -140,6 +143,9 @@ bool is_exr_file(const byte *headerBuffer, size_t size)
 */
 
 static const uint32_t MAGIC_HEADER = MAKE_FOURCC('R', 'D', 'O', 'C');
+//mc tag begin
+rdcstr RDCFile::sm_CurrentOpenFile = {};
+//mc tag end
 
 namespace
 {
@@ -235,6 +241,10 @@ RDCFile::~RDCFile()
 
 void RDCFile::Open(const rdcstr &path)
 {
+  //mc tag begin
+  RDCFile::SetCurrentOpenFile(path);
+  //mc tag end
+  
   // silently fail when opening the empty string, to allow 'releasing' a capture file by opening an
   // empty path.
   if(path.empty())

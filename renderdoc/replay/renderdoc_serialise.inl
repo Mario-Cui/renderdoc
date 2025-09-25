@@ -580,8 +580,10 @@ void DoSerialise(SerialiserType &ser, ActionDescription &el)
 
   SERIALISE_MEMBER(events);
   SERIALISE_MEMBER(children);
-
-  SIZE_CHECK(312);
+  //mc tag begin
+  SERIALISE_MEMBER(shaders);
+  SIZE_CHECK(376);
+  //mc tag end
 }
 
 template <typename SerialiserType>

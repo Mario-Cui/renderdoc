@@ -26,6 +26,7 @@
 
 #include "nv_counter_enumerator.h"
 
+#include "api/replay/external_config.h"
 #include "api/replay/shader_types.h"
 #include "driver/d3d12/d3d12_command_list.h"
 #include "driver/d3d12/d3d12_command_queue.h"
@@ -33,6 +34,7 @@
 #include "driver/d3d12/d3d12_device.h"
 #include "driver/d3d12/d3d12_replay.h"
 
+#include <iostream>
 #include "NvPerfD3D12.h"
 #include "NvPerfRangeProfilerD3D12.h"
 #include "NvPerfScopeExitGuard.h"
@@ -43,7 +45,11 @@ struct NVD3D12Counters::Impl
   bool LibraryNotFound = false;
   bool LibraryNotSupported = false;
 
-  Impl() : CounterEnumerator(NULL) {}
+  Impl()
+    : CounterEnumerator(NULL)
+  {
+  }
+
   ~Impl()
   {
     delete CounterEnumerator;
@@ -53,19 +59,28 @@ struct NVD3D12Counters::Impl
   static void LogNvPerfAsDebugMessage(const char *pPrefix, const char *pDate, const char *pTime,
                                       const char *pFunctionName, const char *pMessage, void *pData)
   {
-    WrappedID3D12Device *device = (WrappedID3D12Device *)pData;
     rdcstr message =
         StringFormat::Fmt("NVIDIA Nsight Perf SDK\n%s%s\n%s", pPrefix, pFunctionName, pMessage);
+#if USE_FOR_CMD
+    WrappedID3D12Device *device = (WrappedID3D12Device *)pData;
     device->AddDebugMessage(MessageCategory::Miscellaneous, MessageSeverity::High,
                             MessageSource::RuntimeWarning, message);
+
+#else
+    std::cout << message.c_str() << std::endl;
+#endif
   }
 
   static void LogDebugMessage(const char *pFunctionName, const char *pMessage,
                               WrappedID3D12Device &device)
   {
     rdcstr message = StringFormat::Fmt("NVIDIA Nsight Perf SDK\n%s\n%s", pFunctionName, pMessage);
+#if USE_FOR_CMD
     device.AddDebugMessage(MessageCategory::Miscellaneous, MessageSeverity::High,
                            MessageSource::RuntimeWarning, message);
+#else
+    std::cout << message.c_str() << std::endl;
+#endif
   }
 
   static bytebuf GetCounterAvailabilityImage(WrappedID3D12Device &device)
@@ -93,7 +108,8 @@ struct NVD3D12Counters::Impl
       if(result != NVPA_STATUS_SUCCESS)
       {
         Impl::LogDebugMessage("NVD3D12Counters::EnumerateCounters",
-                              "NvPerf could not determine counter availability for this GPU", device);
+                              "NvPerf could not determine counter availability for this GPU",
+                              device);
         return {};
       }
       counterAvailabilityImage.resize(params.counterAvailabilityImageSize);
@@ -102,7 +118,8 @@ struct NVD3D12Counters::Impl
       if(result != NVPA_STATUS_SUCCESS)
       {
         Impl::LogDebugMessage("NVD3D12Counters::EnumerateCounters",
-                              "NvPerf could not determine counter availability for this GPU", device);
+                              "NvPerf could not determine counter availability for this GPU",
+                              device);
         return {};
       }
 
@@ -111,10 +128,44 @@ struct NVD3D12Counters::Impl
     return counterAvailabilityImage;
   }
 
-  bool InitCounterEnumerator(WrappedID3D12Device &device)
+  bool TryInitializePerfSDK(WrappedID3D12Device &device)
   {
-    if(CounterEnumerator)
+    if(!NVCounterEnumerator::InitializeNvPerf())
+    {
+      RDCWARN("NvPerf library failed to initialize");
+      LibraryNotFound = true;
+
+      // NOTE: Return success here so that we can later show a message
+      //       directing the user to download the Nsight Perf SDK library.
       return true;
+    }
+
+    if(!NVPA_GetProcAddress("NVPW_D3D12_RawCounterConfig_Create"))
+    {
+      RDCWARN("NvPerf library version is out-of-date");
+      LibraryNotSupported = true;
+
+      // NOTE: Return success here so that we can later show a message
+      //       directing the user to download the Nsight Perf SDK library.
+      return true;
+    }
+
+    nv::perf::UserLogEnableCustom(NVD3D12Counters::Impl::LogNvPerfAsDebugMessage, (void *)&device);
+    auto logGuard = nv::perf::ScopeExitGuard([]() { nv::perf::UserLogDisableCustom(); });
+
+    if(!nv::perf::D3D12LoadDriver())
+    {
+      Impl::LogDebugMessage("NVD3D12Counters::Impl::TryInitializePerfSDK",
+                            "NvPerf failed to load D3D12 driver", device);
+      return false;
+    }
+
+    if(!nv::perf::profiler::D3D12IsGpuSupported(device.GetReal()))
+    {
+      Impl::LogDebugMessage("NVD3D12Counters::Impl::TryInitializePerfSDK",
+                            "NvPerf does not support profiling on this GPU", device);
+      return false;
+    }
 
     nv::perf::DeviceIdentifiers deviceIdentifiers =
         nv::perf::D3D12GetDeviceIdentifiers(device.GetReal());
@@ -173,9 +224,13 @@ struct NVD3D12Counters::Impl
       return false;
     }
 
+    size_t deviceIndex = nv::perf::D3D12GetNvperfDeviceIndex(device.GetReal());
+    
     CounterEnumerator = new NVCounterEnumerator;
+
     if(!CounterEnumerator->Init(std::move(metricsEvaluator), std::move(rawCounterConfigBuilder),
-                                std::move(counterAvailabilityImage)))
+                                std::move(counterAvailabilityImage), deviceIdentifiers,
+                                deviceIndex))
     {
       Impl::LogDebugMessage("NVD3D12Counters::Impl::InitCounterEnumerator",
                             "NvPerf could not initialize metrics evaluator", device);
@@ -184,63 +239,20 @@ struct NVD3D12Counters::Impl
       // NOTE: Not reachable; CounterEnumerator::Init() never returns false
       return false;
     }
-
-    return true;
-  }
-
-  bool TryInitializePerfSDK(WrappedID3D12Device &device)
-  {
-    if(!NVCounterEnumerator::InitializeNvPerf())
-    {
-      RDCWARN("NvPerf library failed to initialize");
-      LibraryNotFound = true;
-
-      // NOTE: Return success here so that we can later show a message
-      //       directing the user to download the Nsight Perf SDK library.
-      return true;
-    }
-
-    if(!NVPA_GetProcAddress("NVPW_D3D12_RawCounterConfig_Create"))
-    {
-      RDCWARN("NvPerf library version is out-of-date");
-      LibraryNotSupported = true;
-
-      // NOTE: Return success here so that we can later show a message
-      //       directing the user to download the Nsight Perf SDK library.
-      return true;
-    }
-
-    nv::perf::UserLogEnableCustom(NVD3D12Counters::Impl::LogNvPerfAsDebugMessage, (void *)&device);
-    auto logGuard = nv::perf::ScopeExitGuard([]() { nv::perf::UserLogDisableCustom(); });
-
-    if(!nv::perf::D3D12LoadDriver())
-    {
-      Impl::LogDebugMessage("NVD3D12Counters::Impl::TryInitializePerfSDK",
-                            "NvPerf failed to load D3D12 driver", device);
-      return false;
-    }
-
-    if(!nv::perf::profiler::D3D12IsGpuSupported(device.GetReal()))
-    {
-      Impl::LogDebugMessage("NVD3D12Counters::Impl::TryInitializePerfSDK",
-                            "NvPerf does not support profiling on this GPU", device);
-      return false;
-    }
-
     return true;
   };
 
   static bool CanProfileEvent(const ActionDescription &actionnode)
   {
     if(!actionnode.children.empty())
-      return false;    // Only profile events for leaf nodes
+      return false; // Only profile events for leaf nodes
 
     if(actionnode.events.empty())
-      return false;    // Skip nodes with no events
+      return false; // Skip nodes with no events
 
     if(!(actionnode.flags & (ActionFlags::Clear | ActionFlags::Drawcall | ActionFlags::Dispatch |
                              ActionFlags::Present | ActionFlags::Copy | ActionFlags::Resolve)))
-      return false;    // Filter out events we cannot profile
+      return false; // Filter out events we cannot profile
 
     return true;
   }
@@ -259,7 +271,8 @@ struct NVD3D12Counters::Impl
   }
 };
 
-NVD3D12Counters::NVD3D12Counters() : m_Impl(NULL)
+NVD3D12Counters::NVD3D12Counters()
+  : m_Impl(NULL)
 {
 }
 
@@ -290,10 +303,6 @@ bool NVD3D12Counters::Init(WrappedID3D12Device &device)
 rdcarray<GPUCounter> NVD3D12Counters::EnumerateCounters(WrappedID3D12Device &device) const
 {
   if(m_Impl->LibraryNotFound || m_Impl->LibraryNotSupported)
-  {
-    return {GPUCounter::FirstNvidia};
-  }
-  if(!m_Impl->InitCounterEnumerator(device))
   {
     return {GPUCounter::FirstNvidia};
   }
@@ -330,7 +339,8 @@ struct D3D12NvidiaActionCallback final : public D3D12ActionCallback
 {
   D3D12NvidiaActionCallback(WrappedID3D12Device *dev,
                             nv::perf::profiler::D3D12RangeCommands *pRangeCommands)
-      : m_pDevice(dev), m_pRangeCommands(pRangeCommands)
+    : m_pDevice(dev),
+      m_pRangeCommands(pRangeCommands)
   {
     m_pDevice->GetQueue()->GetCommandData()->m_ActionCallback = this;
   }
@@ -355,26 +365,37 @@ struct D3D12NvidiaActionCallback final : public D3D12ActionCallback
     return false;
   }
 
-  void PreCloseCommandList(ID3D12GraphicsCommandListX *cmd) final {}
-  void PostRedraw(uint32_t eid, ID3D12GraphicsCommandListX *cmd) final {}
+  void PreCloseCommandList(ID3D12GraphicsCommandListX *cmd) final
+  {
+  }
+
+  void PostRedraw(uint32_t eid, ID3D12GraphicsCommandListX *cmd) final
+  {
+  }
+
   void PreDispatch(uint32_t eid, ID3D12GraphicsCommandListX *cmd) final { PreDraw(eid, cmd); }
+
   bool PostDispatch(uint32_t eid, ID3D12GraphicsCommandListX *cmd) final
   {
     return PostDraw(eid, cmd);
   }
+
   void PostRedispatch(uint32_t eid, ID3D12GraphicsCommandListX *cmd) final { PostRedraw(eid, cmd); }
+
   void PreMisc(uint32_t eid, ActionFlags flags, ID3D12GraphicsCommandListX *cmd) final
   {
     if(flags & ActionFlags::PassBoundary)
       return;
     PreDraw(eid, cmd);
   }
+
   bool PostMisc(uint32_t eid, ActionFlags flags, ID3D12GraphicsCommandListX *cmd) final
   {
     if(flags & ActionFlags::PassBoundary)
       return false;
     return PostDraw(eid, cmd);
   }
+
   void PostRemisc(uint32_t eid, ActionFlags flags, ID3D12GraphicsCommandListX *cmd) final
   {
     if(flags & ActionFlags::PassBoundary)
@@ -382,7 +403,10 @@ struct D3D12NvidiaActionCallback final : public D3D12ActionCallback
     PostRedraw(eid, cmd);
   }
 
-  void AliasEvent(uint32_t primary, uint32_t alias) final {}
+  void AliasEvent(uint32_t primary, uint32_t alias) final
+  {
+  }
+
   WrappedID3D12Device *m_pDevice;
   nv::perf::profiler::D3D12RangeCommands *m_pRangeCommands;
 };
@@ -409,7 +433,9 @@ rdcarray<CounterResult> NVD3D12Counters::FetchCounters(const rdcarray<GPUCounter
     return {};
   }
 
-  uint32_t maxNumRanges = 0;
+  const ExternalConfigParams *extConfig = RENDERDOC_GetExternalConfig();
+  uint32_t maxNumRanges = 128;
+  if(extConfig->apiPerfParams.rangeType != PerfRangeType::PerFrame)
   {
     // replay the events to determine how many profile-able events there are
     FrameRecord frameRecord = device.GetReplay()->GetFrameRecord();
@@ -421,8 +447,8 @@ rdcarray<CounterResult> NVD3D12Counters::FetchCounters(const rdcarray<GPUCounter
 
   nv::perf::profiler::SessionOptions sessionOptions = {};
   sessionOptions.maxNumRanges = maxNumRanges;
-  sessionOptions.avgRangeNameLength = 16;
-  sessionOptions.numTraceBuffers = 1;
+  sessionOptions.avgRangeNameLength = 128;
+  sessionOptions.numTraceBuffers = 5;
 
   nv::perf::profiler::RangeProfilerD3D12 rangeProfiler;
 
@@ -448,17 +474,37 @@ rdcarray<CounterResult> NVD3D12Counters::FetchCounters(const rdcarray<GPUCounter
         continue;
     }
 
+    rdcstr QueueName = (d3dQueue->GetDesc().Type == D3D12_COMMAND_LIST_TYPE_DIRECT)
+                         ? "DirectQueue"
+                         : "ComputeQueue";
+    ResourceId originId =
+        device.GetResourceManager()->GetUnreplacedOriginalID(pWrappedQueue->GetResourceID());
+
+    rdcstr frameRangeName = QueueName + "_" + ToStr(originId.GetId());
+
+    D3D12PerfCallbackData perfCbData = {};
+    if(extConfig->apiPerfParams.rangeType == PerfRangeType::PerFrame)
+    {
+      perfCbData.beginPerf = [&frameRangeName, &rangeProfiler]() {
+        rangeProfiler.PushRange(frameRangeName.c_str());
+      };
+
+      perfCbData.endPerf = [&rangeProfiler]() { rangeProfiler.PopRange(); };
+    }
     if(!rangeProfiler.BeginSession(d3dQueue, sessionOptions))
     {
       Impl::LogDebugMessage("NVD3D12Counters::FetchCounters",
                             "NvPerf failed to start profiling session", device);
-      continue;    // Try the next command queue
+      continue; // Try the next command queue
     }
-    auto sessionGuard = nv::perf::ScopeExitGuard([&rangeProfiler]() { rangeProfiler.EndSession(); });
+    auto sessionGuard = nv::perf::ScopeExitGuard([&rangeProfiler]() {
+      rangeProfiler.EndSession();
+    });
 
     // Create counter configuration, and set it.
     {
-      nv::perf::DeviceIdentifiers deviceIdentifiers = nv::perf::D3D12GetDeviceIdentifiers(d3dDevice);
+      nv::perf::DeviceIdentifiers deviceIdentifiers =
+          nv::perf::D3D12GetDeviceIdentifiers(d3dDevice);
       NVPW_RawCounterConfig *pRawCounterConfig =
           nv::perf::profiler::D3D12CreateRawCounterConfig(deviceIdentifiers.pChipName);
       m_Impl->CounterEnumerator->CreateConfig(deviceIdentifiers.pChipName, pRawCounterConfig,
@@ -480,10 +526,14 @@ rdcarray<CounterResult> NVD3D12Counters::FetchCounters(const rdcarray<GPUCounter
     {
       Impl::LogDebugMessage("NVD3D12Counters::FetchCounters",
                             "NvPerf failed to schedule counter collection", device);
-      continue;    // Try the next command queue
+      continue; // Try the next command queue
     }
 
-    D3D12NvidiaActionCallback actionCallback(&device, &rangeCommands);
+    std::unique_ptr<D3D12NvidiaActionCallback> actionCallBack = nullptr;
+    if(extConfig->apiPerfParams.rangeType != PerfRangeType::PerFrame)
+    {
+      actionCallBack = std::make_unique<D3D12NvidiaActionCallback>(&device, &rangeCommands);
+    }
 
     std::vector<uint8_t> counterDataImage;
     for(size_t replayPass = 0;; ++replayPass)
@@ -497,7 +547,15 @@ rdcarray<CounterResult> NVD3D12Counters::FetchCounters(const rdcarray<GPUCounter
 
       // replay the events to perform all the queries
       uint32_t eventStartID = 0;
-      device.ReplayLog(eventStartID, maxEID, eReplay_Full);
+
+      if(extConfig->apiPerfParams.rangeType == PerfRangeType::PerFrame)
+      {
+        device.ReplayLog(eventStartID, maxEID, eReplay_Full, &perfCbData);
+      }
+      else
+      {
+        device.ReplayLog(eventStartID, maxEID, eReplay_Full);
+      }
 
       if(!rangeProfiler.EndPass())
       {
@@ -519,14 +577,15 @@ rdcarray<CounterResult> NVD3D12Counters::FetchCounters(const rdcarray<GPUCounter
       if(decodeResult.allPassesDecoded)
       {
         counterDataImage = std::move(decodeResult.counterDataImage);
-        break;    // Success!
+        break; // Success!
       }
 
       if(replayPass >= maxNumReplayPasses - 1)
       {
         Impl::LogDebugMessage("NVD3D12Counters::FetchCounters",
-                              "NvPerf exceeded the maximum expected number of replay passes", device);
-        break;    // Failure
+                              "NvPerf exceeded the maximum expected number of replay passes",
+                              device);
+        break; // Failure
       }
     }
 

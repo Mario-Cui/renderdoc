@@ -30,6 +30,7 @@
 #include "api/replay/replay_enums.h"
 #include "common/common.h"
 
+#define USE_FOR_CMD 1
 struct NVPW_RawCounterConfig;
 namespace nv
 {
@@ -37,6 +38,7 @@ namespace perf
 {
 class MetricsEvaluator;
 class RawCounterConfigBuilder;
+struct DeviceIdentifiers;
 }
 }
 
@@ -49,7 +51,7 @@ public:
   // This function takes ownership of metricsEvaluator and rawCounterConfigBuilder.
   bool Init(nv::perf::MetricsEvaluator &&metricsEvaluator,
             nv::perf::RawCounterConfigBuilder &&rawCounterConfigBuilder,
-            bytebuf &&counterAvailabilityImage);
+            bytebuf &&counterAvailabilityImage,nv::perf::DeviceIdentifiers &deviceIdentifiers, size_t deviceIndex);
 
   rdcarray<GPUCounter> GetPublicCounterIds();
   CounterDescription GetCounterDescription(GPUCounter counterID);

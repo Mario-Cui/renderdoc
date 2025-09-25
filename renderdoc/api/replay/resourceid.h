@@ -75,7 +75,9 @@ struct ResourceId
 #if defined(RENDERDOC_QT_COMPAT)
   operator QVariant() const { return QVariant::fromValue(*this); }
 #endif
-
+   //mc tag begin
+   uint64_t GetId() const { return id; }
+  //mc tag end
 private:
   uint64_t id;
 

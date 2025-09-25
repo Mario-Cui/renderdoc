@@ -76,7 +76,20 @@ ProgramEditor::ProgramEditor(const DXBC::DXBCContainer *container, bytebuf &outB
     t->bitWidth = 8;
     m_Types.push_back(t);
   }
+  
+  //mc tag begin
+  if(!m_FloatType)
+  {
+    Type *t = new(alloc) Type;
+    m_FloatType = t;
+    t->type = Type::Scalar;
+    t->scalarType = Type::Float;
+    t->bitWidth = 32;
+    m_Types.push_back(t);
+  }
+  //mc tag end 
 
+  
   // enumerate constants for deduplicating. The encoding automatically partitions these into global
   // (if they're referenced globally) and function, we don't need to.
   //
@@ -1918,5 +1931,90 @@ void ProgramEditor::EncodeMetadata(LLVMBC::BitcodeWriter &writer,
     }
   }
 }
+
+Function *ProgramEditor::DeclareFunctionNoCheck(const rdcstr &name, const Type *retType,
+                               rdcarray<const Type *> params, Attribute desiredAttrs)
+{
+
+  Function *ret = GetFunctionByName(name);
+
+  if(!ret || (ret && (ret->type->inner != retType) && (ret->type->members.size() != params.size())))
+  {
+    const Type *funcType = CreateFunctionType(retType, params);
+
+    Function functionDef;
+    functionDef.name = name;
+    functionDef.type = funcType;
+    functionDef.external = true;
+
+    m_AttributeGroups.push_back(alloc.alloc<AttributeGroup>());
+    m_AttributeGroups.back()->slotIndex = AttributeGroup::FunctionSlot;
+    m_AttributeGroups.back()->params = desiredAttrs;
+
+    m_AttributeSets.push_back(alloc.alloc<AttributeSet>());
+    m_AttributeSets.back()->functionSlot = m_AttributeGroups.back();
+    m_AttributeSets.back()->orderedGroups = {m_AttributeGroups.size() - 1};
+
+    functionDef.attrs = m_AttributeSets.back();
+
+    Function *newFunc = DeclareFunction(functionDef);
+    return newFunc;
+  }
+
+  return ret;
+  
+}
+rdcarray<DXIL::RDATData::FunctionInfo2> &ProgramEditor::GetRDATFunctionInfos()
+{
+  return m_RDAT.functionInfo;
+}
+
+
+void ProgramEditor::RegisterRDATUAV(uint32_t resourceIndex, uint32_t space, uint32_t regBase,
+                                    uint32_t regEnd, ResourceKind kind,
+                                    RDATData::ResourceFlags flags, const rdcstr &name)
+{
+  DXIL::RDATData::ResourceInfo resInfo = {};
+  resInfo.nspace = ResourceClass::UAV;
+  resInfo.kind = kind;
+  resInfo.space = space;
+  resInfo.regStart = regBase;
+  resInfo.regEnd = regEnd;
+  resInfo.flags = RDATData::ResourceFlags::None;
+  resInfo.resourceIndex = resourceIndex;
+  resInfo.name = name;
+
+  m_RDAT.resourceInfo.push_back(resInfo);
+
+  // if(m_Type != DXBC::ShaderType::Compute && m_Type != DXBC::ShaderType::Pixel)
+  //{
+  //   PatchGlobalShaderFlags(
+  //       [](DXBC::GlobalShaderFlags &flags) { flags |= DXBC::GlobalShaderFlags::UAVsEveryStage; });
+  // }
+
+  DXBC::DXBCContainer::StripChunk(m_OutBlob, DXBC::FOURCC_RTS0);
+}
+
+
+GlobalVar *ProgramEditor::CreateGlobalVar(const Type *type, const rdcstr &name, GlobalFlags flags,
+                           const Constant *initialiser , uint32_t align)
+{
+  GlobalVar *g = new(alloc) GlobalVar();
+  g->type = type;
+  g->name = name;
+  g->initialiser = initialiser;
+  g->flags = flags;
+  g->align = align;
+  g->ssaId = m_NextSSAId++;
+  m_GlobalVars.push_back(g);
+
+  if(!name.empty())
+  {
+    m_ValueSymtabOrder.push_back(g);
+  }
+
+  return g;
+}
+
 
 };    // namespace DXIL

@@ -1748,6 +1748,9 @@ protected:
   const Type *GetBoolType() { return m_BoolType; }
   const Type *GetInt32Type() { return m_Int32Type; }
   const Type *GetInt8Type() { return m_Int8Type; }
+  //mc tag begin
+  const Type *GetFloatType() { return m_FloatType; }
+  //mc tag end
   const Type *GetPointerType(const Type *type, Type::PointerAddrSpace addrSpace);
 
   bytebuf m_Bytes;
@@ -1783,7 +1786,10 @@ protected:
   const Type *m_Int8Type = NULL;
   const Type *m_MetaType = NULL;
   const Type *m_LabelType = NULL;
-
+  //mc tag begin
+  const Type *m_FloatType = NULL;
+  //mc tag end
+  
   rdcarray<AttributeGroup *> m_AttributeGroups;
   rdcarray<AttributeSet *> m_AttributeSets;
 

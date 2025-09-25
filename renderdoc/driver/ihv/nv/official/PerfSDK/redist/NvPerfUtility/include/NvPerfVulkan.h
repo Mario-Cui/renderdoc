@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include "driver/vulkan/official/vulkan_core.h"
+#include <vulkan/vulkan.h>
 #include "NvPerfInit.h"
 #include "NvPerfDeviceProperties.h"
 #include "NvPerfPeriodicSamplerGpu.h"

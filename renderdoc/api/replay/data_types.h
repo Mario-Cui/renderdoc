@@ -2178,6 +2178,11 @@ for very coarse bucketing of actions into similar passes by their outputs.
 :type: List[ActionDescription]
 )");
   rdcarray<ActionDescription> children;
+
+  DOCUMENT(R"(An 8-tuple of the :class:`ResourceId` ids for the bindShaders.
+:type: Tuple[ResourceId,...]
+)");
+  rdcfixedarray<ResourceId, 8> shaders;
 };
 
 DECLARE_REFLECTION_STRUCT(ActionDescription);

@@ -2223,6 +2223,12 @@ void D3D12CommandData::AddUsage(const D3D12RenderState &state, D3D12ActionTreeNo
 
   WrappedID3D12PipelineState *pipe = NULL;
 
+  // mc tag begin
+  bool isCompute = false;
+  // mc tag end
+
+
+  
   if(state.pipe != ResourceId())
     pipe = rm->GetCurrentAs<WrappedID3D12PipelineState>(state.pipe);
 
@@ -2231,7 +2237,9 @@ void D3D12CommandData::AddUsage(const D3D12RenderState &state, D3D12ActionTreeNo
   if((a.flags & ActionFlags::Dispatch) && state.compute.rootsig != ResourceId())
   {
     rootsig = &state.compute;
-
+    // mc tag begin
+    isCompute = true;
+    // mc tag end
     if(pipe && pipe->IsCompute())
     {
       WrappedID3D12Shader *sh = (WrappedID3D12Shader *)pipe->compute->CS.pShaderBytecode;
@@ -2309,6 +2317,52 @@ void D3D12CommandData::AddUsage(const D3D12RenderState &state, D3D12ActionTreeNo
 
   if(rootsig)
   {
+
+    // mc tag begin
+    if (state.pipe != ResourceId())
+    {
+      WrappedID3D12PipelineState* dx12Pipe = rm->GetCurrentAs<WrappedID3D12PipelineState>(state.pipe);
+
+      WrappedID3D12Shader* sh = nullptr;
+      if (isCompute)
+      {
+        sh = (WrappedID3D12Shader*)dx12Pipe->compute->CS.pShaderBytecode;
+        if (nullptr != sh)
+          a.shaders[5] = rm->GetUnreplacedOriginalID(sh->GetResourceID());
+      }
+      else
+      {
+        sh = (WrappedID3D12Shader*)dx12Pipe->graphics->VS.pShaderBytecode;
+        if (nullptr != sh)
+          a.shaders[0] = rm->GetUnreplacedOriginalID(sh->GetResourceID());
+
+        sh = (WrappedID3D12Shader*)dx12Pipe->graphics->HS.pShaderBytecode;
+        if (nullptr != sh)
+          a.shaders[1] = rm->GetUnreplacedOriginalID(sh->GetResourceID());
+
+        sh = (WrappedID3D12Shader*)dx12Pipe->graphics->DS.pShaderBytecode;
+        if (nullptr != sh)
+          a.shaders[2] = rm->GetUnreplacedOriginalID(sh->GetResourceID());
+
+        sh = (WrappedID3D12Shader*)dx12Pipe->graphics->GS.pShaderBytecode;
+        if (nullptr != sh)
+          a.shaders[3] = rm->GetUnreplacedOriginalID(sh->GetResourceID());
+
+        sh = (WrappedID3D12Shader*)dx12Pipe->graphics->PS.pShaderBytecode;
+        if (nullptr != sh)
+          a.shaders[4] = rm->GetUnreplacedOriginalID(sh->GetResourceID());
+
+        sh = (WrappedID3D12Shader*)dx12Pipe->graphics->AS.pShaderBytecode;
+        if (nullptr != sh)
+          a.shaders[6] = rm->GetUnreplacedOriginalID(sh->GetResourceID());
+
+        sh = (WrappedID3D12Shader*)dx12Pipe->graphics->MS.pShaderBytecode;
+        if (nullptr != sh)
+          a.shaders[7] = rm->GetUnreplacedOriginalID(sh->GetResourceID());
+      }
+    }
+    // mc tag end
+    
     // iterate over each stage, looking at its used binds, then for each bind find it in the root
     // signature. We have to do this kind of N:N lookup because of D3D12's bad design, but this
     // should be a better way around to do it than iterating over the root signature and finding a

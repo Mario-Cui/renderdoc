@@ -26,10 +26,12 @@
 
 #include "nv_counter_enumerator.h"
 
+#include "api/replay/external_config.h"
 #include "driver/vulkan/vk_core.h"
 #include "driver/vulkan/vk_replay.h"
 
 #define NV_PERF_UTILITY_HIDE_VULKAN_SYMBOLS
+#include <iostream>
 #include "NvPerfRangeProfilerVulkan.h"
 #include "NvPerfScopeExitGuard.h"
 #include "NvPerfVulkan.h"
@@ -50,18 +52,27 @@ struct NVVulkanCounters::Impl
   static void LogNvPerfAsDebugMessage(const char *pPrefix, const char *pDate, const char *pTime,
                                       const char *pFunctionName, const char *pMessage, void *pData)
   {
-    WrappedVulkan *driver = (WrappedVulkan *)pData;
     rdcstr message =
         StringFormat::Fmt("NVIDIA Nsight Perf SDK\n%s%s\n%s", pPrefix, pFunctionName, pMessage);
+#if USE_FOR_CMD
+    WrappedVulkan *driver = (WrappedVulkan *)pData;
     driver->AddDebugMessage(MessageCategory::Miscellaneous, MessageSeverity::High,
                             MessageSource::RuntimeWarning, message);
+#else
+    std::cout << message.c_str() << std::endl;
+#endif
   }
 
   static void LogDebugMessage(const char *pFunctionName, const char *pMessage, WrappedVulkan *driver)
   {
     rdcstr message = StringFormat::Fmt("NVIDIA Nsight Perf SDK\n%s\n%s", pFunctionName, pMessage);
+#if USE_FOR_CMD
     driver->AddDebugMessage(MessageCategory::Miscellaneous, MessageSeverity::High,
                             MessageSource::RuntimeWarning, message);
+#else
+    std::cout << message.c_str() << std::endl;
+#endif
+
   }
 
   static bytebuf GetCounterAvailabilityImage(WrappedVulkan *driver)
@@ -196,9 +207,14 @@ struct NVVulkanCounters::Impl
       return false;
     }
 
+
+    size_t deviceIndex = nv::perf::VulkanGetNvperfDeviceIndex(
+        Unwrap(driver->GetInstance()), Unwrap(driver->GetPhysDev()), Unwrap(driver->GetDev()),
+        ObjDisp(driver->GetInstance())->GetInstanceProcAddr,
+        ObjDisp(driver->GetDev())->GetDeviceProcAddr);
     CounterEnumerator = new NVCounterEnumerator;
     if(!CounterEnumerator->Init(std::move(metricsEvaluator), std::move(rawCounterConfigBuilder),
-                                std::move(counterAvailabilityImage)))
+                                std::move(counterAvailabilityImage),deviceIdentifiers, deviceIndex))
     {
       Impl::LogDebugMessage("NVVulkanCounters::Impl::TryInitializePerfSDK",
                             "NvPerf could not initialize metrics evaluator", driver);
@@ -374,7 +390,11 @@ rdcarray<CounterResult> NVVulkanCounters::FetchCounters(const rdcarray<GPUCounte
 
   uint32_t maxEID = driver->GetMaxEID();
 
-  uint32_t maxNumRanges = 0;
+  const ExternalConfigParams *extConfig = RENDERDOC_GetExternalConfig();
+
+  uint32_t maxNumRanges = 128;
+
+  if(extConfig->apiPerfParams.rangeType != PerfRangeType::PerFrame)
   {
     // replay the events to determine how many profile-able events there are
     FrameRecord frameRecord = driver->GetReplay()->GetFrameRecord();
@@ -386,10 +406,24 @@ rdcarray<CounterResult> NVVulkanCounters::FetchCounters(const rdcarray<GPUCounte
 
   nv::perf::profiler::SessionOptions sessionOptions = {};
   sessionOptions.maxNumRanges = maxNumRanges;
-  sessionOptions.avgRangeNameLength = 16;
-  sessionOptions.numTraceBuffers = 1;
+  sessionOptions.avgRangeNameLength = 128;
+  sessionOptions.numTraceBuffers = 5;
 
   nv::perf::profiler::RangeProfilerVulkan rangeProfiler;
+
+  ResourceId originId = driver->GetResourceManager()->GetOriginalID(GetWrapped(driver->GetQ())->id);
+  rdcstr frameRangeName = "Queue_" + ToStr(originId.GetId());
+
+  VKPerfCallbackData perfCbData = {};
+
+  if(extConfig->apiPerfParams.rangeType == PerfRangeType::PerFrame)
+  {
+    perfCbData.beginPerf = [&frameRangeName, &rangeProfiler]() {
+      rangeProfiler.PushRange(frameRangeName.c_str());
+    };
+
+    perfCbData.endPerf = [&rangeProfiler]() { rangeProfiler.PopRange(); };
+  }
 
   rdcarray<CounterResult> results;
   // TODO: For each Vulkan queue
@@ -437,7 +471,11 @@ rdcarray<CounterResult> NVVulkanCounters::FetchCounters(const rdcarray<GPUCounte
       return {};    // Failure
     }
 
-    VulkanNvidiaActionCallback actionCallback(driver);
+    std::unique_ptr<VulkanNvidiaActionCallback> actionCallback = nullptr;
+    if(extConfig->apiPerfParams.rangeType != PerfRangeType::PerFrame)
+    {
+      actionCallback = std::make_unique<VulkanNvidiaActionCallback>(driver);
+    }
 
     std::vector<uint8_t> counterDataImage;
     for(size_t replayPass = 0;; ++replayPass)
@@ -451,7 +489,17 @@ rdcarray<CounterResult> NVVulkanCounters::FetchCounters(const rdcarray<GPUCounte
 
       // replay the events to perform all the queries
       uint32_t eventStartID = 0;
-      driver->ReplayLog(eventStartID, maxEID, eReplay_Full);
+
+      ObjDisp(driver->GetQ())->QueueWaitIdle(Unwrap(driver->GetQ()));
+
+      if(extConfig->apiPerfParams.rangeType == PerfRangeType::PerFrame)
+      {
+        driver->ReplayLog(eventStartID, maxEID, eReplay_Full, &perfCbData);
+      }
+      else
+      {
+        driver->ReplayLog(eventStartID, maxEID, eReplay_Full);
+      }
 
       if(!rangeProfiler.EndPass())
       {

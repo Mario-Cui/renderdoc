@@ -60,7 +60,7 @@ typedef uint8_t byte;
 #if !defined(SWIG)
 // needs to be declared up here for reference in rdcarray/rdcstr
 extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_FreeArrayMem(void *mem);
-typedef void(RENDERDOC_CC *pRENDERDOC_FreeArrayMem)(void *mem);
+typedef void (RENDERDOC_CC *pRENDERDOC_FreeArrayMem)(void *mem);
 
 extern "C" RENDERDOC_API void *RENDERDOC_CC RENDERDOC_AllocArrayMem(uint64_t sz);
 typedef void *(RENDERDOC_CC *pRENDERDOC_AllocArrayMem)(uint64_t sz);
@@ -91,6 +91,7 @@ DOCUMENT(R"(Create a :class:`WindowingData` for no backing window, it will be he
 :return: A :class:`WindowingData` corresponding to an 'empty' backing window.
 :rtype: WindowingData
 )");
+
 inline const WindowingData CreateHeadlessWindowingData(int32_t width, int32_t height)
 {
   WindowingData ret = {};
@@ -109,6 +110,7 @@ DOCUMENT(R"(Create a :class:`WindowingData` for a Win32 ``HWND`` handle.
 :return: A :class:`WindowingData` corresponding to the given window.
 :rtype: WindowingData
 )");
+
 inline const WindowingData CreateWin32WindowingData(HWND window)
 {
   WindowingData ret = {};
@@ -126,6 +128,7 @@ DOCUMENT(R"(Create a :class:`WindowingData` for an Xlib ``Drawable`` handle.
 :return: A :class:`WindowingData` corresponding to the given window.
 :rtype: WindowingData
 )");
+
 inline const WindowingData CreateXlibWindowingData(Display *display, Drawable window)
 {
   WindowingData ret = {};
@@ -144,6 +147,7 @@ DOCUMENT(R"(Create a :class:`WindowingData` for an XCB ``xcb_window_t`` handle.
 :return: A :class:`WindowingData` corresponding to the given window.
 :rtype: WindowingData
 )");
+
 inline const WindowingData CreateXCBWindowingData(xcb_connection_t *connection, xcb_window_t window)
 {
   WindowingData ret = {};
@@ -162,6 +166,7 @@ DOCUMENT(R"(Create a :class:`WindowingData` for an Wayland ``wl_surface`` handle
 :return: A :class:`WindowingData` corresponding to the given window.
 :rtype: WindowingData
 )");
+
 inline const WindowingData CreateWaylandWindowingData(wl_display *display, wl_surface *window)
 {
   WindowingData ret = {};
@@ -179,6 +184,7 @@ DOCUMENT(R"(Create a :class:`WindowingData` for an Android ``ANativeWindow`` han
 :return: A :class:`WindowingData` corresponding to the given window.
 :rtype: WindowingData
 )");
+
 inline const WindowingData CreateAndroidWindowingData(ANativeWindow *window)
 {
   WindowingData ret = {};
@@ -200,6 +206,7 @@ and ``NSView`` handle (as void pointers).
 :return: A :class:`WindowingData` corresponding to the given window.
 :rtype: WindowingData
 )");
+
 inline const WindowingData CreateMacOSWindowingData(NSView view, CALayer layer)
 {
   WindowingData ret = {};
@@ -221,6 +228,7 @@ The different types are enumerated in :class:`ReplayOutputType`.
 
   No result was found in e.g. :meth:`PickVertex`.
 )");
+
 struct IReplayOutput
 {
   DOCUMENT(R"(Shutdown this output.
@@ -421,6 +429,7 @@ well as control the replay and analysis functionality available.
 
   No preference for a particular value, see :meth:`ReplayController.DebugPixel`.
 )");
+
 struct IReplayController
 {
   DOCUMENT(R"(Retrieve a :class:`APIProperties` object describing the current capture.
@@ -630,7 +639,8 @@ See :data:`TextureDisplay.customShaderId`.
 :rtype: Tuple[ResourceId,str]
 )");
   virtual rdcpair<ResourceId, rdcstr> BuildCustomShader(const rdcstr &entry,
-                                                        ShaderEncoding sourceEncoding, bytebuf source,
+                                                        ShaderEncoding sourceEncoding,
+                                                        bytebuf source,
                                                         const ShaderCompileFlags &compileFlags,
                                                         ShaderStage type) = 0;
 
@@ -654,7 +664,8 @@ See :meth:`BuildCustomShader`.
 :rtype: Tuple[ResourceId,str]
 )");
   virtual rdcpair<ResourceId, rdcstr> BuildTargetShader(const rdcstr &entry,
-                                                        ShaderEncoding sourceEncoding, bytebuf source,
+                                                        ShaderEncoding sourceEncoding,
+                                                        bytebuf source,
                                                         const ShaderCompileFlags &compileFlags,
                                                         ShaderStage type) = 0;
 
@@ -1118,6 +1129,10 @@ texture to something compatible with the target file format.
 )");
   virtual bytebuf GetTextureData(ResourceId tex, const Subresource &sub) = 0;
 
+  virtual bool GetRayDispatchInfos(uint32_t eventId,
+                                   rdcarray<RayInvocationInfo> *rayInvocationInfos,
+                                   rdcarray<RayGenerateInfo> *rayGenerateInfos) = 0;
+
   static const uint32_t NoPreference = ~0U;
 
 protected:
@@ -1130,6 +1145,7 @@ DECLARE_REFLECTION_STRUCT(IReplayController);
 DOCUMENT(R"(A connection to a running application with RenderDoc injected, which allows limited
 control over the capture process as well as querying the current status.
 )");
+
 struct ITargetControl
 {
   DOCUMENT("Closes the connection without affecting the running application.");
@@ -1237,6 +1253,7 @@ DOCUMENT(R"(An interface for accessing a capture, possibly over a network connec
 subset of the functionality provided in :class:`CaptureFile` which only supports import/export
 and construction of files.
 )");
+
 struct ICaptureAccess
 {
   DOCUMENT(R"(Returns the list of available GPUs, that can be used in combination with
@@ -1357,6 +1374,7 @@ much work as possible happening on the local machine.
 
   No preference for a particular value, see :meth:`ReplayController.DebugPixel`.
 )");
+
 struct IRemoteServer : public ICaptureAccess
 {
   DOCUMENT("Closes the connection without affecting the running server.");
@@ -1456,7 +1474,8 @@ the capture must be available on the machine where the replay happens.
 :return: The path on the remote system where the capture was saved temporarily.
 :rtype: str
 )");
-  virtual rdcstr CopyCaptureToRemote(const rdcstr &filename, RENDERDOC_ProgressCallback progress) = 0;
+  virtual rdcstr CopyCaptureToRemote(const rdcstr &filename, RENDERDOC_ProgressCallback progress) =
+  0;
 
   DOCUMENT(R"(Copy a capture file that is stored on the remote system to the local system.
 
@@ -1514,6 +1533,7 @@ protected:
 DOCUMENT(R"(A handle to a capture file. Used for simple cheap processing and meta-data fetching
 without opening the capture for analysis.
 )")
+
 struct ICaptureFile : public ICaptureAccess
 {
   DOCUMENT("Closes the file handle.");
@@ -1726,6 +1746,7 @@ protected:
 DOCUMENT(R"(A handle to a camera controller, used for user interaction and controlling a view of a
 3D scene.
 )")
+
 struct ICamera
 {
   DOCUMENT("Closes the camera handle.");
@@ -1858,7 +1879,7 @@ case of strip topologies.
 :rtype: int
 )");
 extern "C" RENDERDOC_API uint32_t RENDERDOC_CC RENDERDOC_VertexOffset(Topology topology,
-                                                                      uint32_t primitive);
+  uint32_t primitive);
 
 //////////////////////////////////////////////////////////////////////////
 // Create a capture file handle.
@@ -1911,7 +1932,7 @@ This function will block for a variable timeout depending on how many targets ar
 :rtype: int
 )");
 extern "C" RENDERDOC_API uint32_t RENDERDOC_CC RENDERDOC_EnumerateRemoteTargets(const rdcstr &URL,
-                                                                                uint32_t nextIdent);
+  uint32_t nextIdent);
 
 //////////////////////////////////////////////////////////////////////////
 // Remote server
@@ -2053,7 +2074,8 @@ DOCUMENT(R"(Where supported by operating system and permissions, inject into a r
 )");
 extern "C" RENDERDOC_API ExecuteResult RENDERDOC_CC
 RENDERDOC_InjectIntoProcess(uint32_t pid, const rdcarray<EnvironmentModification> &env,
-                            const rdcstr &capturefile, const CaptureOptions &opts, bool waitForExit);
+                            const rdcstr &capturefile, const CaptureOptions &opts,
+                            bool waitForExit);
 
 DOCUMENT(R"(When debugging RenderDoc it can be useful to capture itself by doing a side-build with a
 temporary name. This function checks to see if a given self-hosted DLL is available.
@@ -2083,6 +2105,7 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_EndSelfHostCapture(const rd
 //////////////////////////////////////////////////////////////////////////
 
 DOCUMENT("INTERNAL: Information about vulkan layer registration");
+
 struct VulkanLayerRegistrationInfo
 {
   DOCUMENT(R"(:class:`VulkanLayerFlags` detailing the current registration.
@@ -2109,7 +2132,8 @@ extern "C" RENDERDOC_API bool RENDERDOC_CC
 RENDERDOC_NeedVulkanLayerRegistration(VulkanLayerRegistrationInfo *info);
 
 DOCUMENT("INTERNAL: Update vulkan layer registration.");
-extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_UpdateVulkanLayerRegistration(bool systemLevel);
+extern "C" RENDERDOC_API void RENDERDOC_CC
+RENDERDOC_UpdateVulkanLayerRegistration(bool systemLevel);
 
 //////////////////////////////////////////////////////////////////////////
 // Miscellaneous!
@@ -2128,7 +2152,7 @@ has been called. It should be called exactly once, and before shutdown you must 
 :param List[str] args: Any extra command-line arguments.
 )");
 extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_InitialiseReplay(GlobalEnvironment globalEnv,
-                                                                      const rdcarray<rdcstr> &args);
+  const rdcarray<rdcstr> &args);
 
 DOCUMENT(R"(Shutdown RenderDoc for replay. Replay API functions should not be called after this
 has been called. It is not safe to re-initialise replay after this function has been called so it
@@ -2140,8 +2164,8 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_ShutdownReplay();
 #if !defined(SWIG)
 DOCUMENT("INTERNAL: Create a bug report zip.");
 extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_CreateBugReport(const rdcstr &logfile,
-                                                                     const rdcstr &dumpfile,
-                                                                     rdcstr &report);
+  const rdcstr &dumpfile,
+  rdcstr &report);
 
 DOCUMENT("INTERNAL: Register a memory region to be saved with crash dumps.");
 extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_RegisterMemoryRegion(void *base, size_t size);
@@ -2168,7 +2192,7 @@ extern "C" RENDERDOC_API const char *RENDERDOC_CC RENDERDOC_GetLogFile();
 #if !defined(SWIG)
 DOCUMENT("INTERNAL: Atomically fetch the contents of the log");
 extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_GetLogFileContents(uint64_t offset,
-                                                                        rdcstr &logfile);
+  rdcstr &logfile);
 #endif
 
 DOCUMENT(R"(Add a message to RenderDoc's logfile.
@@ -2215,7 +2239,8 @@ DOCUMENT(R"(Retrieves the driver information (if available) for a given graphics
 :return: A :class:`DriverInformation` containing the driver information.
 :rtype: DriverInformation
 )");
-extern "C" RENDERDOC_API DriverInformation RENDERDOC_CC RENDERDOC_GetDriverInformation(GraphicsAPI api);
+extern "C" RENDERDOC_API DriverInformation RENDERDOC_CC RENDERDOC_GetDriverInformation(
+    GraphicsAPI api);
 
 DOCUMENT(R"(Returns the current process's memory usage in bytes
 
@@ -2237,7 +2262,8 @@ If no such setting exists, `None` is returned.
 :return: The specified setting.
 :rtype: SDObject
 )");
-extern "C" RENDERDOC_API const SDObject *RENDERDOC_CC RENDERDOC_GetConfigSetting(const rdcstr &name);
+extern "C" RENDERDOC_API const SDObject *RENDERDOC_CC
+RENDERDOC_GetConfigSetting(const rdcstr &name);
 
 DOCUMENT(R"(Return a mutable handle to the :class:`SDObject` corresponding to a given setting's
 value object.
@@ -2274,6 +2300,7 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_CheckAndroidPackage(
     const rdcstr &URL, const rdcstr &packageAndActivity, AndroidFlags *flags);
 
 DOCUMENT("An interface for enumerating and controlling remote devices.");
+
 struct IDeviceProtocolController
 {
   DOCUMENT(R"(Retrieves the name of this protocol as passed to :func:`GetDeviceProtocolController`.
@@ -2340,7 +2367,8 @@ protected:
   ~IDeviceProtocolController() = default;
 };
 
-DOCUMENT(R"(Retrieve the set of device protocols supported (see :func:`GetDeviceProtocolController`).
+DOCUMENT(
+    R"(Retrieve the set of device protocols supported (see :func:`GetDeviceProtocolController`).
 
 :return: The supported device protocols.
 :rtype: List[str]
@@ -2375,7 +2403,7 @@ extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunUnitTests(const rdcstr &c
 
 DOCUMENT("INTERNAL: Run functional tests.");
 extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunFunctionalTests(int pythonMinorVersion,
-                                                                       const rdcarray<rdcstr> &args);
+  const rdcarray<rdcstr> &args);
 #endif
 
 #if !defined(SWIG)

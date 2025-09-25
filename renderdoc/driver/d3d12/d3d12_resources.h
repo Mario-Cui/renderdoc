@@ -1119,7 +1119,7 @@ public:
   ~D3D12ShaderExportDatabase();
 
   void SetObjectProperties(ID3D12StateObjectProperties *obj) { m_StateObjectProps = obj; }
-
+  ID3D12StateObjectProperties *GetRealObjectProperties() { return m_StateObjectProps; }// mc tag
   ResourceId GetResourceId() { return objectOriginalId; }
 
   void GrowFrom(D3D12ShaderExportDatabase *existing) { InheritAllCollectionExports(existing); }
@@ -1153,19 +1153,7 @@ public:
   // even if the objects themselves are not even around anymore - since the identifiers returned for
   // them need to stay valid.
   rdcarray<ExportedIdentifier> ownExports;
-
-private:
-  // the state object that originally created this export database. Some of our shader identifiers
-  // may come from other databases, but when uploading the unwrap buffer we store information such
-  // that if we want to unwrap an identifier that comes from this id we look up into unwrappedOwnExports
-  // below. This is the original ID since this is used to look up identifiers that came from the application
-  ResourceId objectOriginalId;
-
   rdcarray<D3D12ShaderExportDatabase *> parents;
-
-  ID3D12StateObjectProperties *m_StateObjectProps = NULL;
-  D3D12RTManager *m_RayManager = NULL;
-
   struct ExportLookup
   {
     ExportLookup(rdcstr name, rdcstr altName, bool complete)
@@ -1186,6 +1174,20 @@ private:
     // whether this export is a hitgroup - incomplete hitgroups get inherited explicitly
     bool hitgroup = false;
   };
+  rdcarray<ExportLookup> exportLookups;
+
+private:
+  // the state object that originally created this export database. Some of our shader identifiers
+  // may come from other databases, but when uploading the unwrap buffer we store information such
+  // that if we want to unwrap an identifier that comes from this id we look up into unwrappedOwnExports
+  // below. This is the original ID since this is used to look up identifiers that came from the application
+  ResourceId objectOriginalId;
+
+
+  ID3D12StateObjectProperties *m_StateObjectProps = NULL;
+  D3D12RTManager *m_RayManager = NULL;
+
+
 
   struct ShaderIdentifier
   {
@@ -1200,7 +1202,6 @@ private:
 
   // parallel array to wrappedIdentifiers of export lookup information. This is parallel and not
   // in-line with wrappedIdentifiers because we want that to be a tight array of actual identifiers
-  rdcarray<ExportLookup> exportLookups;
 
   // these are not technically part of the 'exports' interface but they are very helpful to keep
   // around at the same time. These are explicit associations which might yet apply to future
@@ -1248,6 +1249,11 @@ public:
 
   D3D12ShaderExportDatabase *exports = NULL;
 
+  //mc tag begin
+  
+  D3D12_STATE_OBJECT_DESC origDescriptor;
+  //mc tag end 
+  
   Threading::JobSystem::Job *deferredJob = NULL;
 
   enum

@@ -345,7 +345,7 @@ private:
   RDResult ContextReplayLog(CaptureState readType, uint32_t startEventID, uint32_t endEventID,
                             bool partial);
   bool ContextProcessChunk(ReadSerialiser &ser, GLChunk chunk);
-  void AddUsage(const ActionDescription &a);
+  void AddUsage(ActionDescription &a);
   void AddAction(const ActionDescription &a);
   void AddEvent();
 

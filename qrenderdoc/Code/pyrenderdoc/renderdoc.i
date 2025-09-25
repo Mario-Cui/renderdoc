@@ -456,7 +456,8 @@ TEMPLATE_NAMESPACE_ARRAY_INSTANTIATE(rdcarray, D3D12Pipe, StaticSampler)
 TEMPLATE_NAMESPACE_ARRAY_INSTANTIATE(rdcarray, GLPipe, VertexBuffer)
 TEMPLATE_NAMESPACE_ARRAY_INSTANTIATE(rdcarray, GLPipe, VertexAttribute)
 TEMPLATE_NAMESPACE_ARRAY_INSTANTIATE(rdcarray, GLPipe, TextureCompleteness)
-
+TEMPLATE_ARRAY_INSTANTIATE(rdcarray, RayInvocationInfo) //mc tag
+TEMPLATE_ARRAY_INSTANTIATE(rdcarray, RayGenerateInfo) //mc tag
 ///////////////////////////////////////////////////////////////////////////////////////////
 // declare a function for passing external objects into python
 %wrapper %{

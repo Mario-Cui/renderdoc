@@ -310,6 +310,107 @@ An empty string indicates no errors/problems.
 };
 
 DECLARE_REFLECTION_STRUCT(MeshFormat);
+//mc tag begin
+struct RayInvocationInfo
+{
+  RayInvocationInfo() = default;
+  RayInvocationInfo(const RayInvocationInfo &o) = default;
+  RayInvocationInfo &operator=(const RayInvocationInfo &) = default;
+
+  bool operator==(const RayInvocationInfo &o) const
+  {
+    return shaderType == o.shaderType && dispatchX == o.dispatchX && dispatchY == o.dispatchY &&
+           dispatchZ == o.dispatchZ && flags == o.flags;
+  }
+
+  bool operator<(const RayInvocationInfo &o) const
+  {
+    if(!(shaderType == o.shaderType))
+      return shaderType < o.shaderType;
+    if(!(dispatchX == o.dispatchX))
+      return dispatchX < o.dispatchX;
+    if(!(dispatchY == o.dispatchY))
+      return dispatchY < o.dispatchY;
+    if(!(dispatchZ == o.dispatchZ))
+      return dispatchZ < o.dispatchZ;
+    if(!(flags == o.flags))
+      return flags < o.flags;
+    return false;
+  }
+
+  int32_t shaderType;
+  int32_t dispatchX;
+  int32_t dispatchY;
+  int32_t dispatchZ;
+  float originX, originY, originZ;
+  float dirX, dirY, dirZ;
+  float tMin;
+  float tCurrent;
+  int32_t flags;
+};
+DECLARE_REFLECTION_STRUCT(RayInvocationInfo);
+
+struct RayGenerateInfo
+{
+  RayGenerateInfo() = default;
+  RayGenerateInfo(const RayGenerateInfo &o) = default;
+  RayGenerateInfo &operator=(const RayGenerateInfo &) = default;
+
+  bool operator==(const RayGenerateInfo &o) const
+  {
+    return dispatchX == o.dispatchX && dispatchY == o.dispatchY && dispatchZ == o.dispatchZ &&
+           flags == o.flags && maskAndShderType == o.maskAndShderType &&
+           hitGroupIndex == o.hitGroupIndex && hitGroupMul == o.hitGroupMul &&
+           missIndex == o.missIndex;
+  }
+
+  bool operator<(const RayGenerateInfo &o) const
+  {
+    if(!(dispatchX == o.dispatchX))
+      return dispatchX < o.dispatchX;
+    if(!(dispatchY == o.dispatchY))
+      return dispatchY < o.dispatchY;
+
+    if(!(dispatchZ == o.dispatchZ))
+      return dispatchZ < o.dispatchZ;
+
+    if(!(flags == o.flags))
+      return flags < o.flags;
+
+    if(!(maskAndShderType == o.maskAndShderType))
+      return maskAndShderType < o.maskAndShderType;
+
+    if(!(hitGroupIndex == o.hitGroupIndex))
+      return hitGroupIndex < o.hitGroupIndex;
+
+    if(!(hitGroupMul == o.hitGroupMul))
+      return hitGroupMul < o.hitGroupIndex;
+
+    if(!(missIndex == o.missIndex))
+      return missIndex < o.missIndex;
+
+    return false;
+  }
+
+  int32_t dispatchX;
+  int32_t dispatchY;
+  int32_t dispatchZ;
+  int32_t flags;
+  int32_t maskAndShderType;
+  int32_t hitGroupIndex;
+  int32_t hitGroupMul;
+  int32_t missIndex;
+  float originX;
+  float originY;
+  float originZ;
+  float tMin;
+  float dirX;
+  float dirY;
+  float dirZ;
+  float tMax;
+};
+DECLARE_REFLECTION_STRUCT(RayGenerateInfo);
+//mc tag end
 
 struct ICamera;
 

@@ -26,6 +26,7 @@
 
 #include "nv_counter_enumerator.h"
 
+#include "api/replay/external_config.h"
 #include "driver/d3d11/d3d11_context.h"
 #include "driver/d3d11/d3d11_device.h"
 #include "driver/d3d11/d3d11_replay.h"
@@ -34,6 +35,7 @@
 #include "NvPerfRangeProfilerD3D11.h"
 #include "NvPerfScopeExitGuard.h"
 
+#include <iostream>
 struct NVD3D11Counters::Impl
 {
   NVCounterEnumerator *CounterEnumerator;
@@ -50,21 +52,29 @@ struct NVD3D11Counters::Impl
   static void LogNvPerfAsDebugMessage(const char *pPrefix, const char *pDate, const char *pTime,
                                       const char *pFunctionName, const char *pMessage, void *pData)
   {
-    WrappedID3D11Device *device = (WrappedID3D11Device *)pData;
     rdcstr message =
         StringFormat::Fmt("NVIDIA Nsight Perf SDK\n%s%s\n%s", pPrefix, pFunctionName, pMessage);
+#if USE_FOR_CMD
+    WrappedID3D11Device *device = (WrappedID3D11Device *)pData;
     device->AddDebugMessage(MessageCategory::Miscellaneous, MessageSeverity::High,
                             MessageSource::RuntimeWarning, message);
+#else
+    std::cout << message.c_str() << std::endl;
+#endif
   }
 
   static void LogDebugMessage(const char *pFunctionName, const char *pMessage,
                               WrappedID3D11Device *device)
   {
     rdcstr message = StringFormat::Fmt("NVIDIA Nsight Perf SDK\n%s\n%s", pFunctionName, pMessage);
+#if USE_FOR_CMD
     device->AddDebugMessage(MessageCategory::Miscellaneous, MessageSeverity::High,
                             MessageSource::RuntimeWarning, message);
+#else
+    std::cout << message.c_str() << std::endl;
+#endif
   }
-
+  
   static bytebuf GetCounterAvailabilityImage(WrappedID3D11Device *device)
   {
     bytebuf counterAvailabilityImage;
@@ -90,7 +100,7 @@ struct NVD3D11Counters::Impl
     }
     return counterAvailabilityImage;
   }
-
+  
   bool TryInitializePerfSDK(WrappedID3D11Device *device)
   {
     if(!NVCounterEnumerator::InitializeNvPerf())
@@ -187,9 +197,10 @@ struct NVD3D11Counters::Impl
       return false;
     }
 
+    size_t deviceIndex = nv::perf::D3D11GetNvperfDeviceIndex(device->GetReal());
     CounterEnumerator = new NVCounterEnumerator;
     if(!CounterEnumerator->Init(std::move(metricsEvaluator), std::move(rawCounterConfigBuilder),
-                                std::move(counterAvailabilityImage)))
+                                std::move(counterAvailabilityImage),deviceIdentifiers, deviceIndex))
     {
       Impl::LogDebugMessage("NVD3D11Counters::Impl::TryInitializePerfSDK",
                             "NvPerf could not initialize metrics evaluator", device);
@@ -331,8 +342,11 @@ rdcarray<CounterResult> NVD3D11Counters::FetchCounters(const rdcarray<GPUCounter
 
   ID3D11Device *d3dDevice = device->GetReal();
   ID3D11DeviceContext *d3dImmediateContext = immediateContext->GetReal();
+  uint32_t maxEID = immediateContext->GetMaxEID();
+  const ExternalConfigParams *extConfig = RENDERDOC_GetExternalConfig();
 
-  uint32_t maxNumRanges;
+  uint32_t maxNumRanges = 128;
+  if(extConfig->apiPerfParams.rangeType != PerfRangeType::PerFrame)
   {
     uint32_t numEvents = 0u;
     // replay the events to determine how many profile-able events there are
@@ -342,8 +356,8 @@ rdcarray<CounterResult> NVD3D11Counters::FetchCounters(const rdcarray<GPUCounter
 
   nv::perf::profiler::SessionOptions sessionOptions = {};
   sessionOptions.maxNumRanges = maxNumRanges;
-  sessionOptions.avgRangeNameLength = 16;
-  sessionOptions.numTraceBuffers = 2;
+  sessionOptions.avgRangeNameLength = 128;
+  sessionOptions.numTraceBuffers = 5;
 
   nv::perf::profiler::RangeProfilerD3D11 rangeProfiler;
 
@@ -394,9 +408,19 @@ rdcarray<CounterResult> NVD3D11Counters::FetchCounters(const rdcarray<GPUCounter
       break;    // Failure
     }
 
-    uint32_t eventStartID = 0u;
-    Impl::RecurseProfileEvents(replay, device, rangeProfiler, eventStartID,
-                               immediateContext->GetRootDraw());
+    if(extConfig->apiPerfParams.rangeType == PerfRangeType::PerFrame)
+    {
+      device->ReplayLog(0, 1, eReplay_WithoutDraw);
+      rangeProfiler.PushRange("frame_0");
+      device->ReplayLog(1, maxEID, eReplay_Full);
+      rangeProfiler.PopRange();
+    }
+    else
+    {
+      uint32_t eventStartID = 0u;
+      Impl::RecurseProfileEvents(replay, device, rangeProfiler, eventStartID,
+                                 immediateContext->GetRootDraw());
+    }
 
     if(!rangeProfiler.EndPass())
     {

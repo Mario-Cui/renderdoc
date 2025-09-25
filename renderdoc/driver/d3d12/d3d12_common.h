@@ -712,8 +712,8 @@ struct D3D12_UNWRAPPED_STATE_OBJECT_DESC : public D3D12_STATE_OBJECT_DESC
 {
   D3D12_UNWRAPPED_STATE_OBJECT_DESC(const D3D12_STATE_OBJECT_DESC &wrappedDesc);
 
+  rdcarray<D3D12_STATE_SUBOBJECT> subobjects;//mc tag
 private:
-  rdcarray<D3D12_STATE_SUBOBJECT> subobjects;
   rdcarray<D3D12_GLOBAL_ROOT_SIGNATURE> unwrappedRootsigObjs;
   rdcarray<D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION> rebasedAssocs;
   rdcarray<D3D12_EXISTING_COLLECTION_DESC> unwrappedCollObjs;

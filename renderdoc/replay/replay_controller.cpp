@@ -2017,6 +2017,16 @@ bool ReplayController::FatalErrorCheck()
   return false;
 }
 
+
+
+bool ReplayController::GetRayDispatchInfos(uint32_t eventId, rdcarray<RayInvocationInfo> *rayInvocationInfos,
+                                rdcarray<RayGenerateInfo> *rayGenerateInfos)
+{
+  CHECK_REPLAY_THREAD();
+  return m_pDevice->GetRayDispatchInfos(eventId, rayInvocationInfos, rayGenerateInfos);
+}
+
+
 rdcarray<ShaderEncoding> ReplayController::GetCustomShaderEncodings()
 {
   CHECK_REPLAY_THREAD();

@@ -251,7 +251,7 @@ private:
   void DrainAnnotationQueue();
   void LatchSOProperties();
 
-  void AddUsage(const ActionDescription &a);
+  void AddUsage(ActionDescription &a);
 
   void AddEvent();
   void AddAction(const ActionDescription &a);
@@ -340,6 +340,10 @@ public:
   void SetFrameReader(StreamReader *reader) { m_FrameReader = reader; }
   void MarkResourceReferenced(ResourceId id, FrameRefType refType);
 
+  // mc tag begin
+  uint32_t GetMaxEID() { return m_Events.back().eventId; }
+  // mc tag end
+  
   rdcarray<EventUsage> GetUsage(ResourceId id) { return m_ResourceUses[id]; }
   void ClearMaps();
 

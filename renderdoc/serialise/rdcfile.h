@@ -93,6 +93,11 @@ public:
   // loading the image directly, since the RDC container isn't there to read from a section.
   FILE *StealImageFileHandle(rdcstr &filename);
 
+  //mc  tag begin
+  static void SetCurrentOpenFile(const rdcstr &fileName) { sm_CurrentOpenFile = fileName; }
+  static const rdcstr &GetCurrentOpenFile() { return sm_CurrentOpenFile; }
+  //mc tag end
+  
 private:
   void Init(StreamReader &reader);
 
@@ -124,4 +129,5 @@ private:
   rdcarray<SectionProperties> m_Sections;
   rdcarray<SectionLocation> m_SectionLocations;
   rdcarray<bytebuf> m_MemorySections;
+  static rdcstr sm_CurrentOpenFile;
 };

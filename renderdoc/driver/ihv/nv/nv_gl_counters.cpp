@@ -25,7 +25,6 @@
 #include "nv_gl_counters.h"
 #include "api/replay/external_config.h"
 #include "nv_counter_enumerator.h"
-
 #include "driver/gl/gl_driver.h"
 
 #include <iostream>

@@ -30,7 +30,7 @@
 #include "api/replay/replay_enums.h"
 #include "common/common.h"
 
-#define USE_FOR_CMD 1
+#define USE_FOR_CMD 0
 struct NVPW_RawCounterConfig;
 namespace nv
 {

@@ -20,15 +20,23 @@
 #include "NvPerfDeviceProperties.h"
 #include "nvperf_opengl_host.h"
 #include "nvperf_opengl_target.h"
-#include "GL/gl.h"
+// #include "GL/gl.h"
 #include <string.h>
+
+#ifndef GL_VENDOR
+#define GL_VENDOR                         0x1F00
+#endif
+#ifndef GL_RENDERER
+#define GL_RENDERER                       0x1F01
+#endif 
+
 namespace nv { namespace perf {
 
     // OpenGL Only Utilities
     //
     inline std::string OpenGLGetDeviceName()
     {
-        const GLubyte* pRenderer = glGetString(GL_RENDERER);
+        const GLubyte* pRenderer = glGetString((RDCGLenum)GL_RENDERER);
         if (!pRenderer)
         {
             return "";
@@ -39,7 +47,7 @@ namespace nv { namespace perf {
 
     inline bool OpenGLIsNvidiaDevice()
     {
-        const GLubyte* pVendor = glGetString(GL_VENDOR);
+        const GLubyte* pVendor = glGetString((RDCGLenum)GL_VENDOR);
         if (!pVendor)
         {
             return false;

@@ -2038,8 +2038,18 @@ void WrappedID3D12Device::CopyDescriptors(
   UINT srcRange = 0, dstRange = 0;
   UINT srcIdx = 0, dstIdx = 0;
 
-  D3D12Descriptor *src = GetWrapped(pSrcDescriptorRangeStarts[0]);
-  D3D12Descriptor *dst = GetWrapped(pDestDescriptorRangeStarts[0]);
+  D3D12Descriptor *src = NULL;
+  D3D12Descriptor *dst = NULL;
+  
+  if(pSrcDescriptorRangeStarts)
+  {
+   src = GetWrapped(pSrcDescriptorRangeStarts[0]);
+    
+  }
+  if(pDestDescriptorRangeStarts)
+  {
+   dst = GetWrapped(pDestDescriptorRangeStarts[0]);
+  }
 
   rdcarray<DynamicDescriptorCopy> copies;
 

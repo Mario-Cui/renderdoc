@@ -205,6 +205,8 @@ option(ENABLE_GLES "Enable GL ES driver" ON)
 option(ENABLE_EGL "Enable EGL" ON)
 option(ENABLE_VULKAN "Enable Vulkan driver" ON)
 option(ENABLE_METAL "Enable Metal driver" OFF)
+option(ENABLE_D3D11 "Enable D3D11 driver" ON)
+option(ENABLE_D3D12 "Enable D3D12 driver" ON)
 option(ENABLE_RENDERDOCCMD "Enable renderdoccmd" ON)
 option(ENABLE_QRENDERDOC "Enable qrenderdoc" ON)
 option(ENABLE_PYRENDERDOC "Enable renderdoc python modules" ON)
@@ -249,7 +251,7 @@ if(ENABLE_UNSUPPORTED_EXPERIMENTAL_POSSIBLY_BROKEN_WAYLAND)
 endif()
 
 if(WIN32)
-    message(FATAL_ERROR "CMake is not needed on Windows, just open and build renderdoc.sln")
+    message(STATUS "Configuring for Windows build")
 endif()
 
 message(STATUS "Calculating version")
@@ -344,6 +346,14 @@ endif()
 
 if(ENABLE_METAL)
     add_definitions(-DRENDERDOC_SUPPORT_METAL)
+endif()
+
+if(ENABLE_D3D11)
+    add_definitions(-DRENDERDOC_SUPPORT_D3D11)
+endif()
+
+if(ENABLE_D3D12)
+    add_definitions(-DRENDERDOC_SUPPORT_D3D12)
 endif()
 
 string(TOLOWER "${CMAKE_BUILD_TYPE}" cmake_build_type_lower)
@@ -467,6 +477,56 @@ if(ANDROID)
     add_definitions(-DRENDERDOC_PLATFORM_ANDROID)
 elseif(APPLE)
     add_definitions(-DRENDERDOC_PLATFORM_APPLE)
+elseif(WIN32)
+    add_definitions(-DRENDERDOC_PLATFORM_WIN32)
+    add_definitions(-DWIN32)
+    add_definitions(-D_WINDOWS)
+    add_definitions(-D_UNICODE)
+    add_definitions(-DUNICODE)
+    add_definitions(-D_CRT_SECURE_NO_WARNINGS)
+
+    # WIN64 must be defined for 64-bit builds (the original vcxproj adds it per-platform)
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+        add_definitions(-DWIN64)
+    endif()
+
+    # For MSVC set the output directory to be the same for all configurations
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/lib")
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin")
+
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/lib")
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin")
+
+    # Disable Linux-specific windowing on Windows
+    set(ENABLE_XLIB OFF CACHE BOOL "" FORCE)
+    set(ENABLE_XCB OFF CACHE BOOL "" FORCE)
+    set(ENABLE_UNSUPPORTED_EXPERIMENTAL_POSSIBLY_BROKEN_WAYLAND OFF CACHE BOOL "" FORCE)
+
+    # On Windows, GL support uses WGL, with EGL for ES2 compatibility via
+    # WGL_EXT_create_context_es2_profile, and GLES is not supported standalone.
+    if(ENABLE_GLES)
+        message(STATUS "Disabling GLES driver on Windows")
+        set(ENABLE_GLES OFF CACHE BOOL "" FORCE)
+    endif()
+    # EGL is needed on Windows for OpenGL ES context creation via WGL_EXT_create_context_es2_profile.
+    # The EGL sources are compiled as part of the GL driver (see driver/gl/CMakeLists.txt).
+
+    # MSVC-specific compiler flags
+    if(MSVC)
+        # Enable parallel compilation
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
+
+        # Warning level 4 with additional warnings from the original vcxproj
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4 /w44062 /w44840")
+
+        # Treat warnings as errors in non-release builds
+        if(NOT RELEASE_MODE)
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /WX")
+        endif()
+
+        # Disable specific warnings that are common in the codebase
+        add_definitions(/wd4005 /wd4100 /wd4127 /wd4514 /wd4820 /wd5045)
+    endif()
 elseif(UNIX)
     add_definitions(-DRENDERDOC_PLATFORM_LINUX)
 
@@ -506,8 +566,10 @@ if(ENABLE_QRENDERDOC OR ENABLE_PYRENDERDOC)
     # we also need python3-config for swig, but it's only for the examples
     # so it doesn't matter which one we find as long as we find something!
     # Importantly it doesn't have to match the version we link against
-    if(NOT EXISTS "${PYTHON_EXECUTABLE}-config" AND NOT EXISTS "${PYTHON_EXECUTABLE}.${PYTHON_VERSION_MINOR}-config")
-        message(FATAL_ERROR "We require ${PYTHON_EXECUTABLE}-config or ${PYTHON_EXECUTABLE}.${PYTHON_VERSION_MINOR}-config to build swig, please install the python dev package for your system.")
+    if(NOT WIN32)
+        if(NOT EXISTS "${PYTHON_EXECUTABLE}-config" AND NOT EXISTS "${PYTHON_EXECUTABLE}.${PYTHON_VERSION_MINOR}-config")
+            message(FATAL_ERROR "We require ${PYTHON_EXECUTABLE}-config or ${PYTHON_EXECUTABLE}.${PYTHON_VERSION_MINOR}-config to build swig, please install the python dev package for your system.")
+        endif()
     endif()
 
     add_subdirectory(qrenderdoc)
@@ -515,6 +577,10 @@ endif()
 
 if(ENABLE_RENDERDOCCMD)
     add_subdirectory(renderdoccmd)
+endif()
+
+if(WIN32)
+    add_subdirectory(renderdocshim)
 endif()
 
 # install documentation files

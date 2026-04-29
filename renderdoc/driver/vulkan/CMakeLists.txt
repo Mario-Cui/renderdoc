@@ -97,6 +97,18 @@ elseif(APPLE)
     list(APPEND sources vk_posix.cpp vk_apple.cpp vk_apple_helpers.mm)
 
     add_definitions(-DVK_USE_PLATFORM_MACOS_MVK -DVK_USE_PLATFORM_METAL_EXT)
+elseif(WIN32)
+    list(APPEND sources vk_win32.cpp)
+    list(APPEND definitions PRIVATE -DVK_USE_PLATFORM_WIN32_KHR)
+
+    set(VULKAN_LAYER_MODULE_PATH ".\\${RDOC_BASE_NAME}.dll")
+    set(VULKAN_ENABLE_VAR "ENABLE_VULKAN_${RDOC_BASE_NAME_UPPER}_CAPTURE")
+    set(VULKAN_LAYER_NAME "VK_LAYER_${RDOC_BASE_NAME_UPPER}_Capture")
+
+    set(json_in ${CMAKE_CURRENT_SOURCE_DIR}/renderdoc.json)
+    set(json_out ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${RDOC_BASE_NAME}${VULKAN_JSON_SUFFIX}.json)
+
+    configure_file(${json_in} ${json_out})
 elseif(UNIX)
     list(APPEND sources vk_posix.cpp vk_linux.cpp)
 
@@ -111,8 +123,6 @@ elseif(UNIX)
     if(ENABLE_UNSUPPORTED_EXPERIMENTAL_POSSIBLY_BROKEN_WAYLAND)
         add_definitions(-DVK_USE_PLATFORM_WAYLAND_KHR)
     endif()
-    
-    add_definitions(-DVK_USE_PLATFORM_WIN32_KHR)
 
     set(VULKAN_LAYER_MODULE_PATH "${CMAKE_INSTALL_PREFIX}/lib${LIB_SUFFIX}/${LIB_SUBFOLDER_TRAIL_SLASH}lib${RDOC_BASE_NAME}.so")
     set(VULKAN_ENABLE_VAR "ENABLE_VULKAN_${RDOC_BASE_NAME_UPPER}_CAPTURE")
@@ -129,3 +139,9 @@ endif()
 add_library(rdoc_vulkan OBJECT ${sources})
 target_compile_definitions(rdoc_vulkan ${definitions})
 target_include_directories(rdoc_vulkan ${RDOC_INCLUDES})
+
+if(MSVC)
+    target_compile_options(rdoc_vulkan PRIVATE /FI${CMAKE_SOURCE_DIR}/renderdoc/core/precompiled.h)
+    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/vk_serialise.cpp
+        PROPERTIES COMPILE_FLAGS "/bigobj")
+endif()

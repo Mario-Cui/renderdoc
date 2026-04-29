@@ -7,6 +7,8 @@ if(NOT ANDROID AND NOT APPLE)
     list(APPEND sources
         nv_counter_enumerator.cpp
         nv_counter_enumerator.h
+        nv_counters.cpp
+        nv_counters.h
         nv_gl_counters.h
         nv_vk_counters.h)
 
@@ -16,6 +18,17 @@ if(NOT ANDROID AND NOT APPLE)
 
     if(ENABLE_VULKAN)
         set(sources_vulkan nv_vk_counters.cpp)
+    endif()
+
+    if(WIN32)
+        list(APPEND sources
+            nvapi_hooks.cpp
+            nvapi_wrapper.cpp
+            nvapi_wrapper.h
+            nv_d3d11_counters.cpp
+            nv_d3d11_counters.h
+            nv_d3d12_counters.cpp
+            nv_d3d12_counters.h)
     endif()
 endif()
 

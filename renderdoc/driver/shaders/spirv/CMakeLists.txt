@@ -92,6 +92,9 @@ set(glslang_sources
 if(UNIX)
     list(APPEND glslang_sources
         ${glslang_dir}/glslang/OSDependent/Unix/ossource.cpp)
+elseif(WIN32)
+    list(APPEND glslang_sources
+        ${glslang_dir}/glslang/OSDependent/Windows/ossource.cpp)
 endif()
 
 set(sources
@@ -121,8 +124,10 @@ set(sources
 add_definitions(-DAMD_EXTENSIONS)
 add_definitions(-DNV_EXTENSIONS)
 
-set_property(SOURCE ${glslang_sources}
-    PROPERTY COMPILE_FLAGS "-Wno-ignored-qualifiers -Wno-strict-aliasing -Wno-unreachable-code-break")
+if(NOT MSVC)
+    set_property(SOURCE ${glslang_sources}
+        PROPERTY COMPILE_FLAGS "-Wno-ignored-qualifiers -Wno-strict-aliasing -Wno-unreachable-code-break")
+endif()
 
 # GCC 7.0 and above needs -Wno-implicit-fallthrough
 if(CMAKE_COMPILER_IS_GNUCXX)
@@ -155,3 +160,9 @@ endif()
 add_library(rdoc_spirv OBJECT ${sources})
 target_compile_definitions(rdoc_spirv ${RDOC_DEFINITIONS})
 target_include_directories(rdoc_spirv ${RDOC_INCLUDES} ${glslang_dir})
+
+if(MSVC)
+    # Match the original vcxproj: W3 + specific W4 additions + disabled warnings to avoid glslang noise
+    target_compile_options(rdoc_spirv PRIVATE /W3 /w44062 /w44840 /wd4100 /wd4267 /wd5030 /wd4065)
+    add_definitions(-DGLSLANG_OSINCLUDE_WIN32)
+endif()

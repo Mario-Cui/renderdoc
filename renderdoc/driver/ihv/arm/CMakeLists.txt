@@ -50,11 +50,13 @@ else()
     )
 endif()
 
-set_property(SOURCE ${sources}
-    PROPERTY COMPILE_FLAGS "-Wno-unknown-warning-option -Wno-range-loop-construct")
+if(NOT WIN32)
+    set_property(SOURCE ${sources}
+        PROPERTY COMPILE_FLAGS "-Wno-unknown-warning-option -Wno-range-loop-construct")
 
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    set_property(SOURCE ${sources} APPEND_STRING PROPERTY COMPILE_FLAGS " -Wno-shadow -Wno-shorten-64-to-32 -Wno-vla-cxx-extension")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        set_property(SOURCE ${sources} APPEND_STRING PROPERTY COMPILE_FLAGS " -Wno-shadow -Wno-shorten-64-to-32 -Wno-vla-cxx-extension")
+    endif()
 endif()
 
 add_library(rdoc_arm OBJECT ${sources})

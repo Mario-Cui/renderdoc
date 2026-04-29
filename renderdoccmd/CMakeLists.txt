@@ -41,6 +41,15 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     set_property(SOURCE renderdoccmd_android.cpp APPEND_STRING PROPERTY COMPILE_FLAGS " -Wno-shadow")
 endif()
 
+elseif(WIN32)
+    list(APPEND sources renderdoccmd_win32.cpp renderdoccmd.rc
+        ${CMAKE_SOURCE_DIR}/renderdoc/3rdparty/miniz/miniz.c
+        ${CMAKE_SOURCE_DIR}/renderdoc/3rdparty/miniz/miniz.h)
+    list(APPEND includes PRIVATE ${CMAKE_SOURCE_DIR}/renderdocshim
+        PRIVATE ${CMAKE_SOURCE_DIR}/renderdoc
+        PRIVATE ${CMAKE_SOURCE_DIR}/renderdoc/3rdparty
+        PRIVATE ${CMAKE_SOURCE_DIR}/renderdoc/api/replay)
+    list(APPEND libraries PRIVATE psapi.lib ws2_32.lib wininet.lib)
 elseif(UNIX)
     list(APPEND sources renderdoccmd_linux.cpp)
 
@@ -89,6 +98,10 @@ else()
     if(INTERNAL_SELF_CAPTURE)
         set_target_properties(renderdoccmd PROPERTIES OUTPUT_NAME "rdocselfcmd")
     endif()
+endif()
+
+if(MSVC)
+    target_compile_options(renderdoccmd PRIVATE /wd4100 /wd4189 /wd4505 /wd4458 /wd4702)
 endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")

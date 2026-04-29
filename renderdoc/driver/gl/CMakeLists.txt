@@ -67,6 +67,25 @@ if(APPLE)
         cgl_platform_helpers.mm
         cgl_platform.cpp
         cgl_hooks.cpp)
+elseif(WIN32)
+    if(ENABLE_GL)
+        list(APPEND sources
+            official/wglext.h
+            wgl_dispatch_table.h
+            wgl_platform.cpp
+            wgl_hooks.cpp
+            precompiled.cpp
+            precompiled.h)
+    endif()
+    if(ENABLE_EGL)
+        list(APPEND sources
+            official/egl.h
+            official/eglext.h
+            official/eglplatform.h
+            egl_dispatch_table.h
+            egl_platform.cpp
+            egl_hooks.cpp)
+    endif()
 else()
     if(ENABLE_GL)
         list(APPEND sources
@@ -94,3 +113,7 @@ endif()
 add_library(rdoc_gl OBJECT ${sources})
 target_compile_definitions(rdoc_gl ${RDOC_DEFINITIONS})
 target_include_directories(rdoc_gl ${RDOC_INCLUDES})
+
+if(WIN32)
+    target_compile_options(rdoc_gl PRIVATE /FI${CMAKE_CURRENT_SOURCE_DIR}/precompiled.h)
+endif()

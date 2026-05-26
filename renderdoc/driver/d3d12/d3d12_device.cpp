@@ -603,6 +603,7 @@ WrappedID3D12Device::WrappedID3D12Device(ID3D12Device *realDevice, D3D12InitPara
   m_pDevice12 = NULL;
   m_pDevice13 = NULL;
   m_pDevice14 = NULL;
+  m_pDevice15 = NULL;
   m_pDownlevel = NULL;
   if(m_pDevice)
   {
@@ -620,6 +621,7 @@ WrappedID3D12Device::WrappedID3D12Device(ID3D12Device *realDevice, D3D12InitPara
     m_pDevice->QueryInterface(__uuidof(ID3D12Device12), (void **)&m_pDevice12);
     m_pDevice->QueryInterface(__uuidof(ID3D12Device13), (void **)&m_pDevice13);
     m_pDevice->QueryInterface(__uuidof(ID3D12Device14), (void **)&m_pDevice14);
+    m_pDevice->QueryInterface(__uuidof(ID3D12Device15), (void **)&m_pDevice15);
     m_pDevice->QueryInterface(__uuidof(ID3D12DeviceRemovedExtendedData), (void **)&m_DRED.m_pReal);
     m_pDevice->QueryInterface(__uuidof(ID3D12DeviceRemovedExtendedData1), (void **)&m_DRED.m_pReal1);
     m_pDevice->QueryInterface(__uuidof(ID3D12DeviceRemovedExtendedDataSettings),
@@ -989,6 +991,7 @@ WrappedID3D12Device::~WrappedID3D12Device()
   SAFE_RELEASE(m_pDownlevel);
   SAFE_RELEASE(m_pDeviceTools);
   SAFE_RELEASE(m_pDeviceTools1);
+  SAFE_RELEASE(m_pDevice15);
   SAFE_RELEASE(m_pDevice14);
   SAFE_RELEASE(m_pDevice13);
   SAFE_RELEASE(m_pDevice12);
@@ -1330,6 +1333,19 @@ HRESULT WrappedID3D12Device::QueryInterface(REFIID riid, void **ppvObject)
     {
       AddRef();
       *ppvObject = (ID3D12Device14 *)this;
+      return S_OK;
+    }
+    else
+    {
+      return E_NOINTERFACE;
+    }
+  }
+  else if(riid == __uuidof(ID3D12Device15))
+  {
+    if(m_pDevice15)
+    {
+      AddRef();
+      *ppvObject = (ID3D12Device15 *)this;
       return S_OK;
     }
     else
@@ -5180,6 +5196,9 @@ bool WrappedID3D12Device::ProcessChunk(ReadSerialiser &ser, D3D12Chunk context)
       return Serialise_SetPipelineStackSize(ser, NULL, 0);
     case D3D12Chunk::Device_CreateRootSignatureFromSubobjectInLibrary:
       return Serialise_CreateRootSignatureFromSubobjectInLibrary(ser, 0, NULL, 0, NULL, IID(), NULL);
+
+    case D3D12Chunk::Device_CreateQueryHeap1:
+      return Serialise_CreateQueryHeap1(ser, NULL, D3D12_QUERY_HEAP_FLAG_NONE, IID(), NULL);
 
     // in order to get a warning if we miss a case, we explicitly handle the list/queue chunks here.
     // If we actually encounter one it's an error (we should hit CaptureBegin first and switch to

@@ -1064,6 +1064,7 @@ bool WrappedID3D12CommandQueue::ProcessChunk(ReadSerialiser &ser, D3D12Chunk chu
     case D3D12Chunk::StateObject_SetPipelineStackSize:
     case D3D12Chunk::Device_CreateHeapFromAddress1:
     case D3D12Chunk::Device_CreateRootSignatureFromSubobjectInLibrary:
+    case D3D12Chunk::Device_CreateQueryHeap1:
     case D3D12Chunk::List_SetProgram:
     case D3D12Chunk::List_DispatchGraph:
       RDCERR("Unexpected chunk while processing frame: %s", ToStr(chunk).c_str());

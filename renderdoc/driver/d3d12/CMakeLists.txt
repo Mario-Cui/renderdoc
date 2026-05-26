@@ -35,6 +35,7 @@ set(sources
     d3d12_device_wrap12.cpp
     d3d12_device_wrap13.cpp
     d3d12_device_wrap14.cpp
+    d3d12_device_wrap15.cpp
     d3d12_device.cpp
     d3d12_device.h
     d3d12_dxil_debug.cpp

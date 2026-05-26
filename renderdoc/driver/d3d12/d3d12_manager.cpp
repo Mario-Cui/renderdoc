@@ -467,7 +467,8 @@ void D3D12Descriptor::Create(D3D12_DESCRIPTOR_HEAP_TYPE heapType, WrappedID3D12D
         }
       }
 
-      if(countRes == NULL && desc && desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER)
+      if(countRes == NULL && desc && (desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER ||
+                                     desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET))
         desc->Buffer.CounterOffsetInBytes = 0;
 
       D3D12_UNORDERED_ACCESS_VIEW_DESC planeDesc;

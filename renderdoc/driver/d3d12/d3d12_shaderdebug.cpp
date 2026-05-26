@@ -681,6 +681,7 @@ ShaderVariable D3D12ShaderDebug::GetResourceInfo(WrappedID3D12Device *device,
     switch(uavDesc.ViewDimension)
     {
       case D3D12_UAV_DIMENSION_BUFFER:
+      case D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET:
       {
         if(isDXIL)
         {
@@ -790,6 +791,7 @@ ShaderVariable D3D12ShaderDebug::GetResourceInfo(WrappedID3D12Device *device,
     switch(srvDesc.ViewDimension)
     {
       case D3D12_SRV_DIMENSION_BUFFER:
+      case D3D12_SRV_DIMENSION_BUFFER_BYTE_OFFSET:
       {
         if(isDXIL)
         {

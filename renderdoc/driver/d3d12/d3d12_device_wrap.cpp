@@ -2436,7 +2436,7 @@ HRESULT WrappedID3D12Device::CheckFeatureSupport(D3D12_FEATURE Feature, void *pF
       return E_INVALIDARG;
 
     // don't support DXR 1.2
-    opts->RaytracingTier = RDCMIN(opts->RaytracingTier, D3D12_RAYTRACING_TIER_1_1);
+    opts->RaytracingTier = RDCMIN(opts->RaytracingTier, D3D12_RAYTRACING_TIER_1_2);
 
     if(dolog)
       RDCLOG("Clamping raytracing tier support");

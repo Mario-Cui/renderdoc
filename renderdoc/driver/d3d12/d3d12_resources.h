@@ -1887,6 +1887,7 @@ public:
     return m_asbWrappedResource->GetGPUVirtualAddress() + m_asbWrappedResourceBufferOffset;
   }
   D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE Type() const { return type; }
+  bool IsOMMArray() const { return type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_ARRAY; }
 
   ASBuildData *buildData = NULL;
 

@@ -65,6 +65,16 @@ void DoSerialise(SerialiserType &ser, ASBuildData::RVAAABBDesc &el)
 }
 
 template <class SerialiserType>
+void DoSerialise(SerialiserType &ser, ASBuildData::RVAOMMLinkageDesc &el)
+{
+  SERIALISE_MEMBER(OpacityMicromapIndexBuffer);
+  SERIALISE_MEMBER(OpacityMicromapIndexFormat);
+  SERIALISE_MEMBER(OpacityMicromapBaseLocation);
+  SERIALISE_MEMBER(OpacityMicromapArrayRVA);
+  SERIALISE_MEMBER(OriginalOpacityMicromapArrayVA);
+}
+
+template <class SerialiserType>
 void DoSerialise(SerialiserType &ser, ASBuildData::RTGeometryDesc &el)
 {
   SERIALISE_MEMBER(Type);
@@ -72,6 +82,11 @@ void DoSerialise(SerialiserType &ser, ASBuildData::RTGeometryDesc &el)
 
   if(el.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES)
   {
+    SERIALISE_MEMBER(Triangles);
+  }
+  else if(el.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES)
+  {
+    // OMM_TRIANGLES shares the same triangle layout as TRIANGLES
     SERIALISE_MEMBER(Triangles);
   }
   else
@@ -734,6 +749,9 @@ uint64_t D3D12ResourceManager::GetSize_InitialState(ResourceId id, const D3D12In
       // geometries serialise size is no larger than the desc because it's all single elements with
       // no expansion or array counts
       ret += 64 + sizeof(D3D12_RAYTRACING_GEOMETRY_DESC) * buildData->geoms.size();
+
+      // OMM linkage data (one per geometry)
+      ret += 64 + sizeof(ASBuildData::RVAOMMLinkageDesc) * buildData->geoms.size();
 
       if(buildData->buffer)
         ret += 64 + buildData->buffer->Size();
@@ -1570,6 +1588,7 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
       SERIALISE_ELEMENT(buildData->Flags);
       SERIALISE_ELEMENT(buildData->NumBLAS);
       SERIALISE_ELEMENT(buildData->geoms);
+      SERIALISE_ELEMENT(buildData->ommLinkages);
 
       // serialise the size separately so we can recreate on replay
       SERIALISE_ELEMENT(ContentsLength);
@@ -1730,14 +1749,39 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
 
           // rebase all the geometries to the new address
           uint64_t baseVA = mappedBuffer ? mappedBuffer->Address() : 0;
-          for(ASBuildData::RTGeometryDesc &desc : buildData->geoms)
+          for(size_t gi = 0; gi < buildData->geoms.size(); gi++)
           {
+            ASBuildData::RTGeometryDesc &desc = buildData->geoms[gi];
+            ASBuildData::RVAOMMLinkageDesc &ommLinkage = buildData->ommLinkages[gi];
+
             if(desc.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS)
             {
               if(desc.AABBs.AABBCount != 0)
                 desc.AABBs.AABBs.RVA += baseVA;
               else
                 desc.AABBs.AABBs.RVA = 0;
+            }
+            else if(desc.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES)
+            {
+              // rebase triangle data (same as TRIANGLES)
+              if(desc.Triangles.Transform3x4 != ASBuildData::NULLVA)
+                desc.Triangles.Transform3x4 += baseVA;
+              else
+                desc.Triangles.Transform3x4 = 0;
+
+              if(desc.Triangles.IndexBuffer != ASBuildData::NULLVA)
+                desc.Triangles.IndexBuffer += baseVA;
+              else
+                desc.Triangles.IndexBuffer = 0;
+
+              desc.Triangles.VertexBuffer.RVA += baseVA;
+
+              // rebase OMM index buffer
+              if(ommLinkage.OpacityMicromapIndexBuffer != 0)
+                ommLinkage.OpacityMicromapIndexBuffer += baseVA;
+
+              // OMM Array GPUVA is handled separately via the OMM VA map
+              // The OriginalOpacityMicromapArrayVA is used for replay patching
             }
             else
             {
@@ -2243,6 +2287,10 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
       return;
     }
 
+    // OMM Array VA mapping is pre-populated by D3D12ResourceManager::PrepopulateOMMArrayVAMap()
+    // before ApplyInitialContents runs, so that BLAS Apply_InitialState can find the
+    // OMM Array replay VA via PatchBLASOMMAddresses regardless of processing order.
+
     ASBuildData *buildData = data.buildData;
 
     if(buildData)
@@ -2265,11 +2313,86 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
           desc.Inputs.NumDescs = buildData->NumBLAS;
           desc.Inputs.InstanceDescs = buildData->buffer ? buildData->buffer->Address() : 0;
         }
+        else if(buildData->Type ==
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_ARRAY)
+        {
+          // OMM Array builds don't go through initial state caching
+          desc.Inputs.NumDescs = 0;
+          desc.Inputs.pGeometryDescs = NULL;
+        }
         else
         {
           desc.Inputs.NumDescs = buildData->geoms.count();
-          // can be safely cast as the RVAs have been rebased to real VAs on serialise
-          desc.Inputs.pGeometryDescs = (D3D12_RAYTRACING_GEOMETRY_DESC *)buildData->geoms.data();
+
+          // RTGeometryDesc uses RVA-based union members which differ in layout from
+          // D3D12_RAYTRACING_GEOMETRY_DESC for OMM_TRIANGLES (RVAs vs CPU pointers).
+          // Build a temporary array of D3D12 geometry descriptors that the D3D12 API
+          // can safely consume.
+          rdcarray<D3D12_RAYTRACING_GEOMETRY_TRIANGLES_DESC> tmpTriDescs;
+          rdcarray<D3D12_RAYTRACING_GEOMETRY_OMM_LINKAGE_DESC> tmpLinkDescs;
+          // Pre-allocate so pointers to elements remain stable
+          tmpTriDescs.reserve(desc.Inputs.NumDescs);
+          tmpLinkDescs.reserve(desc.Inputs.NumDescs);
+
+          rdcarray<D3D12_RAYTRACING_GEOMETRY_DESC> tmpGeoms;
+          tmpGeoms.reserve(desc.Inputs.NumDescs);
+          for(size_t gi = 0; gi < desc.Inputs.NumDescs; gi++)
+          {
+            const ASBuildData::RTGeometryDesc &srcGeom = buildData->geoms[gi];
+            D3D12_RAYTRACING_GEOMETRY_DESC dstGeom = {};
+            dstGeom.Type = srcGeom.Type;
+            dstGeom.Flags = srcGeom.Flags;
+
+            if(srcGeom.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES)
+            {
+              // RVATrianglesDesc shares the same layout as
+              // D3D12_RAYTRACING_GEOMETRY_TRIANGLES_DESC
+              memcpy(&dstGeom.Triangles, &srcGeom.Triangles, sizeof(dstGeom.Triangles));
+            }
+            else if(srcGeom.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES)
+            {
+              // Push triangle desc (RVATrianglesDesc layout matches D3D12 struct)
+              D3D12_RAYTRACING_GEOMETRY_TRIANGLES_DESC tri = {};
+              memcpy(&tri, &srcGeom.Triangles, sizeof(tri));
+              tmpTriDescs.push_back(tri);
+
+              // Push OMM linkage desc from parallel ommLinkages[] data.
+              // Remap the original OMM Array GPU VA through the buffer
+              // address system so it points to the replay-time location.
+              const ASBuildData::RVAOMMLinkageDesc &ommLink = buildData->ommLinkages[gi];
+              D3D12_RAYTRACING_GEOMETRY_OMM_LINKAGE_DESC link = {};
+              link.OpacityMicromapIndexBuffer.StartAddress =
+                  ommLink.OpacityMicromapIndexBuffer;
+              link.OpacityMicromapIndexFormat = ommLink.OpacityMicromapIndexFormat;
+              link.OpacityMicromapBaseLocation = ommLink.OpacityMicromapBaseLocation;
+
+              if(ommLink.OriginalOpacityMicromapArrayVA != 0)
+              {
+                ResourceId bufId;
+                D3D12BufferOffset bufOffs;
+                WrappedID3D12Resource::GetResIDFromAddrAllowOutOfBounds(
+                    ommLink.OriginalOpacityMicromapArrayVA, bufId, bufOffs);
+                if(bufId != ResourceId() && HasResource(bufId))
+                {
+                  ID3D12Resource *buf = GetResAs<ID3D12Resource>(bufId);
+                  if(buf)
+                    link.OpacityMicromapArray = buf->GetGPUVirtualAddress() + bufOffs;
+                }
+              }
+              if(link.OpacityMicromapArray == 0)
+                link.OpacityMicromapArray = ommLink.OriginalOpacityMicromapArrayVA;
+              tmpLinkDescs.push_back(link);
+
+              dstGeom.OmmTriangles.pTriangles = &tmpTriDescs.back();
+              dstGeom.OmmTriangles.pOmmLinkage = &tmpLinkDescs.back();
+            }
+            else
+            {
+              memcpy(&dstGeom.AABBs, &srcGeom.AABBs, sizeof(dstGeom.AABBs));
+            }
+            tmpGeoms.push_back(dstGeom);
+          }
+          desc.Inputs.pGeometryDescs = tmpGeoms.data();
         }
 
         m_Device->GetRaytracingAccelerationStructurePrebuildInfo(&desc.Inputs, &prebuild);

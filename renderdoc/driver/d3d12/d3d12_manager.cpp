@@ -2394,26 +2394,62 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
       }
     }
   }
+  else if(inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_ARRAY)
+  {
+    ret->NumBLAS = 0;
+
+    // OMM Array builds don't require snapshotting input data to a readback buffer
+    // because the InputBuffer and PerOmmDescs are tracked as regular GPU resources.
+    // We just need a minimal ASBuildData entry for the AS lifecycle tracking.
+    // No byteSize allocation needed - the OMM Array buffer is owned by the application.
+  }
   else
   {
     ret->NumBLAS = 0;
 
-    if(inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY)
+    // copy geometry descriptors using per-element push_back so that the
+    // RTGeometryDesc constructor runs, which resolves OMM_TRIANGLES
+    // pTriangles pointers into the Triangles union member.
+    ret->geoms.reserve(inputs.NumDescs);
+    for(UINT i = 0; i < inputs.NumDescs; i++)
     {
-      ret->geoms.assign((ASBuildData::RTGeometryDesc *)inputs.pGeometryDescs, inputs.NumDescs);
+      const D3D12_RAYTRACING_GEOMETRY_DESC &src =
+          inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY
+              ? inputs.pGeometryDescs[i]
+              : *inputs.ppGeometryDescs[i];
+      ret->geoms.push_back(src);
     }
-    else
+
+    // populate OMM linkage data in parallel array
+    ret->ommLinkages.reserve(inputs.NumDescs);
+    RDCASSERT(inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY ||
+              inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS);
+    for(UINT i = 0; i < inputs.NumDescs; i++)
     {
-      ret->geoms.reserve(inputs.NumDescs);
-      for(UINT i = 0; i < inputs.NumDescs; i++)
-        ret->geoms.push_back(*inputs.ppGeometryDescs[i]);
+      const D3D12_RAYTRACING_GEOMETRY_DESC &src =
+          inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY
+              ? inputs.pGeometryDescs[i]
+              : *inputs.ppGeometryDescs[i];
+
+      ASBuildData::RVAOMMLinkageDesc linkageData = {};
+      if(src.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES && src.OmmTriangles.pOmmLinkage)
+      {
+        linkageData.OpacityMicromapIndexFormat = src.OmmTriangles.pOmmLinkage->OpacityMicromapIndexFormat;
+        linkageData.OpacityMicromapBaseLocation = src.OmmTriangles.pOmmLinkage->OpacityMicromapBaseLocation;
+        linkageData.OriginalOpacityMicromapArrayVA = src.OmmTriangles.pOmmLinkage->OpacityMicromapArray;
+        linkageData.OpacityMicromapIndexBuffer = src.OmmTriangles.pOmmLinkage->OpacityMicromapIndexBuffer.StartAddress;
+      }
+      ret->ommLinkages.push_back(linkageData);
     }
 
     // calculate how much data is needed. Add 256 bytes padding
     uint64_t byteSize = 0;
     uint64_t bytesOverhead = 0;
-    for(const ASBuildData::RTGeometryDesc &desc : ret->geoms)
+    for(size_t gi = 0; gi < ret->geoms.size(); gi++)
     {
+      const ASBuildData::RTGeometryDesc &desc = ret->geoms[gi];
+      const ASBuildData::RVAOMMLinkageDesc &ommLinkage = ret->ommLinkages[gi];
+
       if(desc.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS)
       {
         if(desc.AABBs.AABBCount > 0)
@@ -2429,6 +2465,7 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
       }
       else
       {
+        // Triangle data size: shared by TRIANGLES and OMM_TRIANGLES
         if(desc.Triangles.Transform3x4)
         {
           byteSize += sizeof(float) * 3 * 4;
@@ -2494,6 +2531,25 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
             byteSize = AlignUp16(byteSize);
           }
         }
+
+        // OMM index buffer size (OMM_TRIANGLES only)
+        // The OMM index buffer has one entry PER TRIANGLE, not per index.
+        // For indexed meshes: triangle count = IndexCount / 3.
+        // For non-indexed meshes: triangle count = VertexCount / 3.
+        if(desc.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES &&
+           ommLinkage.OpacityMicromapIndexBuffer != 0)
+        {
+          UINT idxSize = 2;
+          if(ommLinkage.OpacityMicromapIndexFormat == DXGI_FORMAT_R32_UINT)
+            idxSize = 4;
+          else if(ommLinkage.OpacityMicromapIndexFormat == DXGI_FORMAT_R8_UINT)
+            idxSize = 1;
+          uint32_t triangleCount = desc.Triangles.IndexCount > 0
+                                       ? desc.Triangles.IndexCount / 3
+                                       : desc.Triangles.VertexCount / 3;
+          byteSize += (uint64_t)idxSize * triangleCount;
+          byteSize = AlignUp16(byteSize);
+        }
       }
     }
 
@@ -2515,8 +2571,11 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
     uint64_t dstOffset = ret->buffer->Offset();
     uint64_t baseOffset = dstOffset;
 
-    for(ASBuildData::RTGeometryDesc &desc : ret->geoms)
+    for(uint64_t gi = 0; gi < ret->geoms.size(); gi++)
     {
+      ASBuildData::RTGeometryDesc &desc = ret->geoms[gi];
+      ASBuildData::RVAOMMLinkageDesc &ommLinkage = ret->ommLinkages[gi];
+
       if(desc.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS)
       {
         if(desc.AABBs.AABBCount > 0)
@@ -2615,6 +2674,31 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
             dstOffset = AlignUp16(dstOffset + byteSize);
           }
         }
+
+        // For OMM_TRIANGLES, copy the OMM index buffer to readback storage
+        // The OMM index buffer has one entry PER TRIANGLE, not per index.
+        if(desc.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES &&
+           ommLinkage.OpacityMicromapIndexBuffer != 0)
+        {
+          UINT idxSize = 2;
+          if(ommLinkage.OpacityMicromapIndexFormat == DXGI_FORMAT_R32_UINT)
+            idxSize = 4;
+          else if(ommLinkage.OpacityMicromapIndexFormat == DXGI_FORMAT_R8_UINT)
+            idxSize = 1;
+
+          uint32_t triangleCount = desc.Triangles.IndexCount > 0
+                                       ? desc.Triangles.IndexCount / 3
+                                       : desc.Triangles.VertexCount / 3;
+          uint64_t ommIdxBufSize = (uint64_t)idxSize * triangleCount;
+
+          CopyFromVA(unwrappedCmd, dstRes, dstOffset,
+                     ommLinkage.OpacityMicromapIndexBuffer, ommIdxBufSize);
+
+          ommLinkage.OpacityMicromapIndexBuffer = dstOffset - baseOffset;
+          RDCASSERT(ommLinkage.OpacityMicromapIndexBuffer + ommIdxBufSize <= allocedByteSize);
+
+          dstOffset = AlignUp16(dstOffset + ommIdxBufSize);
+        }
       }
     }
   }
@@ -2623,6 +2707,16 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
   D3D12_RESOURCE_BARRIER barrier = {};
   barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
   unwrappedCmd->ResourceBarrier(1, &barrier);
+
+  // populate OMM Array references from linkage data
+  for(size_t gi = 0; gi < ret->ommLinkages.size(); gi++)
+  {
+    const ASBuildData::RVAOMMLinkageDesc &ommLink = ret->ommLinkages[gi];
+    if(ommLink.OriginalOpacityMicromapArrayVA != 0)
+    {
+      ret->ommReferences.push_back({ommLink.OriginalOpacityMicromapArrayVA, (uint64_t)gi});
+    }
+  }
 
   // only bother tracking build data with a buffer attached, as without the buffer there is nothing
   // to cache and we don't care too much about missing stats for empty/degenerate ASs
@@ -2640,7 +2734,35 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
                                    m_TimerReadbackBuffer->Offset() + sizeof(uint64_t) * ret->query);
   }
 
+  // record OMM Array references for later replay patching
+  {
+    SCOPED_LOCK(m_OMMArrayVAMapLock);
+    for(const ASBuildData::OMMRef &ommRef : ret->ommReferences)
+    {
+      // Ensure we don't have duplicate entries for the same VA
+      if(m_OMMArrayVAMap.find(ommRef.originalOMMArrayVA) == m_OMMArrayVAMap.end())
+        m_OMMArrayVAMap[ommRef.originalOMMArrayVA] = ResourceId();
+    }
+  }
+
   return ret;
+}
+
+void D3D12RTManager::RecordOMMArrayVA(D3D12_GPU_VIRTUAL_ADDRESS originalVA,
+                                       ResourceId asId)
+{
+  SCOPED_LOCK(m_OMMArrayVAMapLock);
+  m_OMMArrayVAMap[originalVA] = asId;
+}
+
+ResourceId D3D12RTManager::FindOMMArrayByOriginalVA(
+    D3D12_GPU_VIRTUAL_ADDRESS originalVA) const
+{
+  SCOPED_LOCK(m_OMMArrayVAMapLock);
+  auto it = m_OMMArrayVAMap.find(originalVA);
+  if(it != m_OMMArrayVAMap.end())
+    return it->second;
+  return ResourceId();
 }
 
 D3D12GpuBuffer *D3D12RTManager::UnrollBLASInstancesList(

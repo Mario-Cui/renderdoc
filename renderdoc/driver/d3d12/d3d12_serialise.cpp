@@ -1928,7 +1928,27 @@ void Deserialise(const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC &el)
 {
   // We will be allocating only dynamic memory for el.Inputs
   if(el.Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL)
+  {
+    // clean up OMM_TRIANGLES per-geometry allocations made during deserialisation
+    for(UINT i = 0; i < el.Inputs.NumDescs; i++)
+    {
+      if(el.Inputs.pGeometryDescs[i].Type == D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES)
+      {
+        delete el.Inputs.pGeometryDescs[i].OmmTriangles.pTriangles;
+        delete el.Inputs.pGeometryDescs[i].OmmTriangles.pOmmLinkage;
+      }
+    }
     delete[] el.Inputs.pGeometryDescs;
+  }
+  else if(el.Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_ARRAY)
+  {
+    if(el.Inputs.pOpacityMicromapArrayDesc)
+    {
+      if(el.Inputs.pOpacityMicromapArrayDesc->NumOmmHistogramEntries > 0)
+        delete[] el.Inputs.pOpacityMicromapArrayDesc->pOmmHistogram;
+      delete el.Inputs.pOpacityMicromapArrayDesc;
+    }
+  }
 }
 
 template <class SerialiserType>
@@ -1955,6 +1975,10 @@ void DoSerialise(SerialiserType &ser, D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCT
   if(el.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)
   {
     SERIALISE_MEMBER_TYPED(D3D12BufferLocation, InstanceDescs).Important();
+  }
+  else if(el.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_ARRAY)
+  {
+    SERIALISE_MEMBER_OPT(pOpacityMicromapArrayDesc);
   }
   else
   {
@@ -1997,6 +2021,24 @@ void DoSerialise(SerialiserType &ser, D3D12_RAYTRACING_GEOMETRY_DESC &el)
   {
     SERIALISE_MEMBER(Triangles);
   }
+  else if(el.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES)
+  {
+    // OMM_TRIANGLES stores triangle geometry and OMM linkage via pointers.
+    // Dereference them for serialization and reconstruct on read.
+    D3D12_RAYTRACING_GEOMETRY_TRIANGLES_DESC triDesc = {};
+    if(ser.IsWriting() && el.OmmTriangles.pTriangles)
+      triDesc = *el.OmmTriangles.pTriangles;
+    ser.Serialise("Triangles"_lit, triDesc);
+    if(ser.IsReading())
+      el.OmmTriangles.pTriangles = new D3D12_RAYTRACING_GEOMETRY_TRIANGLES_DESC(triDesc);
+
+    D3D12_RAYTRACING_GEOMETRY_OMM_LINKAGE_DESC linkageDesc = {};
+    if(ser.IsWriting() && el.OmmTriangles.pOmmLinkage)
+      linkageDesc = *el.OmmTriangles.pOmmLinkage;
+    ser.Serialise("OmmLinkage"_lit, linkageDesc);
+    if(ser.IsReading())
+      el.OmmTriangles.pOmmLinkage = new D3D12_RAYTRACING_GEOMETRY_OMM_LINKAGE_DESC(linkageDesc);
+  }
   else
   {
     SERIALISE_MEMBER(AABBs);
@@ -2020,6 +2062,47 @@ void DoSerialise(SerialiserType &ser, D3D12_RAYTRACING_GEOMETRY_AABBS_DESC &el)
 {
   SERIALISE_MEMBER(AABBCount);
   SERIALISE_MEMBER(AABBs);
+}
+
+template <class SerialiserType>
+void DoSerialise(SerialiserType &ser, D3D12_RAYTRACING_GEOMETRY_OMM_LINKAGE_DESC &el)
+{
+  SERIALISE_MEMBER(OpacityMicromapIndexBuffer);
+  SERIALISE_MEMBER(OpacityMicromapIndexFormat);
+  SERIALISE_MEMBER(OpacityMicromapBaseLocation);
+  // Use D3D12BufferLocation to properly remap the OMM Array GPU VA
+  // during replay, since the backing buffer address may change.
+  SERIALISE_MEMBER_TYPED(D3D12BufferLocation, OpacityMicromapArray);
+}
+
+template <class SerialiserType>
+void DoSerialise(SerialiserType &ser, D3D12_RAYTRACING_OPACITY_MICROMAP_HISTOGRAM_ENTRY &el)
+{
+  SERIALISE_MEMBER(Count);
+  SERIALISE_MEMBER(SubdivisionLevel);
+  SERIALISE_MEMBER(Format);
+}
+
+template <class SerialiserType>
+void DoSerialise(SerialiserType &ser, D3D12_RAYTRACING_OPACITY_MICROMAP_ARRAY_DESC &el)
+{
+  SERIALISE_MEMBER(NumOmmHistogramEntries);
+  if(el.NumOmmHistogramEntries > 0)
+  {
+    D3D12_RAYTRACING_OPACITY_MICROMAP_HISTOGRAM_ENTRY *hist = NULL;
+    if(ser.IsWriting())
+      hist = const_cast<D3D12_RAYTRACING_OPACITY_MICROMAP_HISTOGRAM_ENTRY *>(el.pOmmHistogram);
+    ser.Serialise("pOmmHistogram"_lit, hist, el.NumOmmHistogramEntries,
+                  SerialiserFlags::AllocateMemory);
+    if(ser.IsReading())
+      el.pOmmHistogram = hist;
+  }
+  else if(ser.IsReading())
+  {
+    el.pOmmHistogram = NULL;
+  }
+  SERIALISE_MEMBER_TYPED(D3D12BufferLocation, InputBuffer);
+  SERIALISE_MEMBER(PerOmmDescs);
 }
 
 template <class SerialiserType>
@@ -2578,6 +2661,9 @@ INSTANTIATE_SERIALISE_TYPE(D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS)
 INSTANTIATE_SERIALISE_TYPE(D3D12_RAYTRACING_GEOMETRY_DESC);
 INSTANTIATE_SERIALISE_TYPE(D3D12_RAYTRACING_GEOMETRY_TRIANGLES_DESC);
 INSTANTIATE_SERIALISE_TYPE(D3D12_RAYTRACING_GEOMETRY_AABBS_DESC);
+INSTANTIATE_SERIALISE_TYPE(D3D12_RAYTRACING_GEOMETRY_OMM_LINKAGE_DESC);
+INSTANTIATE_SERIALISE_TYPE(D3D12_RAYTRACING_OPACITY_MICROMAP_HISTOGRAM_ENTRY);
+INSTANTIATE_SERIALISE_TYPE(D3D12_RAYTRACING_OPACITY_MICROMAP_ARRAY_DESC);
 INSTANTIATE_SERIALISE_TYPE(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO);
 INSTANTIATE_SERIALISE_TYPE(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC);
 INSTANTIATE_SERIALISE_TYPE(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION_DESC);

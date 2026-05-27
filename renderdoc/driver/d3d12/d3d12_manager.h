@@ -1151,16 +1151,53 @@ struct ASBuildData
     RVAWithStride AABBs;
   };
 
+  // RVA equivalent of D3D12_RAYTRACING_GEOMETRY_OMM_LINKAGE_DESC
+  struct RVAOMMLinkageDesc
+  {
+    uint64_t OpacityMicromapIndexBuffer;          // RVA in ASBuildData buffer (0 = NULL)
+    DXGI_FORMAT OpacityMicromapIndexFormat;
+    UINT OpacityMicromapBaseLocation;
+    uint64_t OpacityMicromapArrayRVA;             // RVA in ASBuildData buffer (0 = NULL)
+    D3D12_GPU_VIRTUAL_ADDRESS OriginalOpacityMicromapArrayVA; // original GPUVA for replay patching
+  };
+
+  // RVA equivalent of D3D12_RAYTRACING_GEOMETRY_OMM_TRIANGLES_DESC.
+  // For OMM_TRIANGLES captures, the triangle geometry data (originally
+  // via pTriangles) is resolved into the Triangles union member at
+  // capture time.  The OMM linkage data (originally via pOmmLinkage)
+  // is stored in the parallel ommLinkages[] array.  This struct
+  // exists to maintain binary layout parity with the D3D12 union.
+  struct RVAOMMTrianglesDesc
+  {
+    // After capture resolution both values are zeroed / unused
+    // because the data lives in Triangles + ommLinkages[].
+    uint64_t TrianglesRVA;
+    uint64_t OmmLinkageRVA;
+  };
+
   // analogous struct to D3D12_RAYTRACING_GEOMETRY_DESC but contains plain uint64 offsets in place
   // of GPU VAs - effectively RVAs in the internal buffer
+  //
+  // IMPORTANT: This struct must be the same size as D3D12_RAYTRACING_GEOMETRY_DESC
+  // because it is reinterpret-cast to/from that type in initial state serialisation.
   struct RTGeometryDesc
   {
     RTGeometryDesc() = default;
     RTGeometryDesc(const D3D12_RAYTRACING_GEOMETRY_DESC &desc)
     {
       RDCCOMPILE_ASSERT(sizeof(*this) == sizeof(D3D12_RAYTRACING_GEOMETRY_DESC),
-                        "Types should be entirely identical");
+                        "Types must be exactly the same size for reinterpret cast");
       memcpy(this, &desc, sizeof(desc));
+
+      // OMM_TRIANGLES stores triangle geometry via a pTriangles pointer.
+      // Follow the pointer and populate the Triangles union member so that
+      // downstream code can process vertex/index data uniformly with the
+      // regular TRIANGLES path.
+      if(desc.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES &&
+         desc.OmmTriangles.pTriangles)
+      {
+        memcpy(&Triangles, desc.OmmTriangles.pTriangles, sizeof(RVATrianglesDesc));
+      }
     }
 
     D3D12_RAYTRACING_GEOMETRY_TYPE Type;
@@ -1170,6 +1207,7 @@ struct ASBuildData
     {
       RVATrianglesDesc Triangles;
       RVAAABBDesc AABBs;
+      RVAOMMTrianglesDesc OmmTriangles;
     };
   };
 
@@ -1187,6 +1225,18 @@ struct ASBuildData
 
   // geometry GPU addresses have been de-based to contain only offsets
   rdcarray<RTGeometryDesc> geoms;
+
+  // OMM linkage data indexed parallel to geoms[] - only valid when the
+  // corresponding geoms[i].Type == D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES
+  rdcarray<RVAOMMLinkageDesc> ommLinkages;
+
+  // OMM Array GPUVA references for BLAS builds -- used for replay address patching
+  struct OMMRef
+  {
+    D3D12_GPU_VIRTUAL_ADDRESS originalOMMArrayVA;
+    uint64_t geomIndex;       // index into geoms[]
+  };
+  rdcarray<OMMRef> ommReferences;
 
   void MarkWorkComplete();
   bool IsWorkComplete() const { return complete; }
@@ -1223,6 +1273,7 @@ private:
 DECLARE_REFLECTION_STRUCT(ASBuildData::RVAWithStride);
 DECLARE_REFLECTION_STRUCT(ASBuildData::RVATrianglesDesc);
 DECLARE_REFLECTION_STRUCT(ASBuildData::RVAAABBDesc);
+DECLARE_REFLECTION_STRUCT(ASBuildData::RVAOMMLinkageDesc);
 DECLARE_REFLECTION_STRUCT(ASBuildData::RTGeometryDesc);
 
 class D3D12RTManager
@@ -1274,6 +1325,10 @@ public:
   void AddPendingCallbacks(ID3D12Fence *fence, UINT64 waitValue,
                            const rdcarray<std::function<bool()>> &callbacks);
   void TickASManagement();
+
+  // OMM Array VA mapping for replay address patching
+  void RecordOMMArrayVA(D3D12_GPU_VIRTUAL_ADDRESS originalVA, ResourceId asId);
+  ResourceId FindOMMArrayByOriginalVA(D3D12_GPU_VIRTUAL_ADDRESS originalVA) const;
 
   // this disk cache is primarily single threaded - either the disk cache thread owns
   // seeking/writing to the files, or during initial states that thread owns seeking/reading.
@@ -1411,6 +1466,11 @@ private:
 
   Threading::CriticalSection m_ASCacheThreadLock;
   int32_t m_ASCacheThreadRunning = 0;
+
+  // mapping from original (capture-time) OMM Array GPUVA to replay-time AS ResourceId
+  // used for patching BLAS OpacityMicromapArray references during replay
+  mutable Threading::CriticalSection m_OMMArrayVAMapLock;
+  std::unordered_map<D3D12_GPU_VIRTUAL_ADDRESS, ResourceId> m_OMMArrayVAMap;
   int32_t m_ASCacheThreadActive = 0;
   Threading::Semaphore *m_ASCacheThreadSemaphore = NULL;
   Threading::ThreadHandle m_ASCacheThread = {};

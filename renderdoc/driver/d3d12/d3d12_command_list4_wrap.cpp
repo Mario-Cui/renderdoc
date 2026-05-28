@@ -771,13 +771,6 @@ bool WrappedID3D12GraphicsCommandList::ProcessASBuildAfterSubmission(
       // take ownership of the implicit ref
       accStructAtDestOffset->buildData = buildData;
     }
-
-    // for OMM Arrays, record the VA mapping so BLAS can patch references during replay
-    if(type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_ARRAY)
-    {
-      GetResourceManager()->GetRTManager()->RecordOMMArrayVA(
-          accStructAtDestOffset->GetVirtualAddress(), accStructAtDestOffset->GetResourceID());
-    }
   }
   else
   {
@@ -993,79 +986,6 @@ bool WrappedID3D12GraphicsCommandList::PatchAccStructBlasAddress(
   return true;
 }
 
-void WrappedID3D12GraphicsCommandList::PatchBLASOMMAddresses(
-    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC &accStructInput)
-{
-  D3D12RTManager *rtManager = GetResourceManager()->GetRTManager();
-
-  if(accStructInput.Inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY)
-  {
-    for(UINT i = 0; i < accStructInput.Inputs.NumDescs; i++)
-    {
-      D3D12_RAYTRACING_GEOMETRY_DESC &geom =
-          const_cast<D3D12_RAYTRACING_GEOMETRY_DESC &>(accStructInput.Inputs.pGeometryDescs[i]);
-
-      if(geom.Type != D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES ||
-         geom.OmmTriangles.pOmmLinkage == NULL)
-        continue;
-
-      if(geom.OmmTriangles.pOmmLinkage->OpacityMicromapArray == 0)
-        continue; // special-index-only, no OMM Array dependency
-
-      ResourceId ommArrayId =
-          rtManager->FindOMMArrayByOriginalVA(geom.OmmTriangles.pOmmLinkage->OpacityMicromapArray);
-
-      if(ommArrayId != ResourceId())
-      {
-        D3D12AccelerationStructure *ommArrayAS = GetResourceManager()->GetResAs<D3D12AccelerationStructure>(ommArrayId);
-        if(ommArrayAS)
-        {
-          const_cast<D3D12_RAYTRACING_GEOMETRY_OMM_LINKAGE_DESC *>(
-              geom.OmmTriangles.pOmmLinkage)
-              ->OpacityMicromapArray = ommArrayAS->GetVirtualAddress();
-        }
-        else
-        {
-          RDCERR("OMM Array id %s was found in VA map but unable to resolve", ToStr(ommArrayId).c_str());
-        }
-      }
-      // OpacityMicromapArray is already correctly remapped via D3D12BufferLocation
-      // during serialization; failure to find the OMM Array wrapper is not an error.
-    }
-  }
-  else // ARRAY_OF_POINTERS
-  {
-    for(UINT i = 0; i < accStructInput.Inputs.NumDescs; i++)
-    {
-      D3D12_RAYTRACING_GEOMETRY_DESC &geom =
-          *const_cast<D3D12_RAYTRACING_GEOMETRY_DESC *>(accStructInput.Inputs.ppGeometryDescs[i]);
-
-      if(geom.Type != D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES ||
-         geom.OmmTriangles.pOmmLinkage == NULL)
-        continue;
-
-      if(geom.OmmTriangles.pOmmLinkage->OpacityMicromapArray == 0)
-        continue;
-
-      ResourceId ommArrayId =
-          rtManager->FindOMMArrayByOriginalVA(geom.OmmTriangles.pOmmLinkage->OpacityMicromapArray);
-
-      if(ommArrayId != ResourceId())
-      {
-        D3D12AccelerationStructure *ommArrayAS = GetResourceManager()->GetResAs<D3D12AccelerationStructure>(ommArrayId);
-        if(ommArrayAS)
-        {
-          const_cast<D3D12_RAYTRACING_GEOMETRY_OMM_LINKAGE_DESC *>(
-              geom.OmmTriangles.pOmmLinkage)
-              ->OpacityMicromapArray = ommArrayAS->GetVirtualAddress();
-        }
-      }
-      // OpacityMicromapArray is already correctly remapped via D3D12BufferLocation
-      // during serialization; failure to find the OMM Array wrapper is not an error.
-    }
-  }
-}
-
 template <typename SerialiserType>
 bool WrappedID3D12GraphicsCommandList::Serialise_BuildRaytracingAccelerationStructure(
     SerialiserType &ser, _In_ const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *pDesc,
@@ -1147,9 +1067,6 @@ bool WrappedID3D12GraphicsCommandList::Serialise_BuildRaytracingAccelerationStru
           // here for auditing so the pointer may be NULL.
           patchInfo.destinationAS =
               accStructAtDstOffset ? accStructAtDstOffset->GetResourceID() : ResourceId();
-
-          // Patch OMM Array GPUVA references in OMM_TRIANGLES geometries
-          PatchBLASOMMAddresses(AccStructDesc);
         }
         else if(AccStructDesc.Inputs.Type ==
                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_ARRAY)
@@ -1198,10 +1115,6 @@ bool WrappedID3D12GraphicsCommandList::Serialise_BuildRaytracingAccelerationStru
           bakedCmdInfo.state.ApplyState(m_pDevice, (ID3D12GraphicsCommandListX *)pCommandList);
         }
       }
-
-      // Patch OMM Array GPUVA references in OMM_TRIANGLES geometries (all build types)
-      if(AccStructDesc.Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL)
-        PatchBLASOMMAddresses(AccStructDesc);
 
       if(!D3D12_Debug_RT_Auditing())
       {
@@ -1384,7 +1297,7 @@ void WrappedID3D12GraphicsCommandList::BuildRaytracingAccelerationStructure(
     // add a ref for the lambda below which tracks when it's ready for readback
     buildData->AddRef();
 
-    AddSubmissionASBuildCallback(
+        AddSubmissionASBuildCallback(
         true,
         [buildData]() {
           buildData->MarkWorkComplete();
@@ -1392,7 +1305,6 @@ void WrappedID3D12GraphicsCommandList::BuildRaytracingAccelerationStructure(
           return true;
         },
         [buildData]() { buildData->Release(); });
-
     // an indirect AS build will pull in buffers we can't know about
     if(pDesc->Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)
     {
@@ -1467,8 +1379,7 @@ void WrappedID3D12GraphicsCommandList::BuildRaytracingAccelerationStructure(
        pDesc->Inputs.pOpacityMicromapArrayDesc)
     {
       m_ListRecord->MarkResourceFrameReferenced(
-          WrappedID3D12Resource::GetResIDFromAddr(
-              pDesc->Inputs.pOpacityMicromapArrayDesc->InputBuffer),
+          WrappedID3D12Resource::GetResIDFromAddr(pDesc->Inputs.pOpacityMicromapArrayDesc->InputBuffer),
           eFrameRef_Read);
       m_ListRecord->MarkResourceFrameReferenced(
           WrappedID3D12Resource::GetResIDFromAddr(

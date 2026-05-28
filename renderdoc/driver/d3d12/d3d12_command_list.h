@@ -608,9 +608,6 @@ public:
                                  ID3D12GraphicsCommandList4 *unwrappedList,
                                  BakedCmdListInfo::PatchRaytracing *patchRaytracing);
 
-  void PatchBLASOMMAddresses(
-      D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC &accStructInput);
-
   bool ProcessASBuildAfterSubmission(ResourceId asbWrappedResourceId,
                                      D3D12BufferOffset asbWrappedResourceBufferOffset,
                                      ResourceId dstASId,

@@ -1230,13 +1230,13 @@ struct ASBuildData
   // corresponding geoms[i].Type == D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES
   rdcarray<RVAOMMLinkageDesc> ommLinkages;
 
-  // OMM Array GPUVA references for BLAS builds -- used for replay address patching
-  struct OMMRef
-  {
-    D3D12_GPU_VIRTUAL_ADDRESS originalOMMArrayVA;
-    uint64_t geomIndex;       // index into geoms[]
-  };
-  rdcarray<OMMRef> ommReferences;
+  // OMM Array build input snapshot - populated when Type == OMM_ARRAY
+  rdcarray<D3D12_RAYTRACING_OPACITY_MICROMAP_HISTOGRAM_ENTRY> ommHistogram;
+  uint64_t ommInputBufferRVA = 0;  // RVA of InputBuffer contents in buffer[]
+  uint64_t ommInputBufferSize = 0;
+  uint64_t ommPerOmmDescRVA = 0;   // RVA of PerOmmDescs contents in buffer[]
+  uint64_t ommPerOmmDescSize = 0;
+  UINT64 ommPerOmmDescStride = 0;
 
   void MarkWorkComplete();
   bool IsWorkComplete() const { return complete; }
@@ -1325,10 +1325,6 @@ public:
   void AddPendingCallbacks(ID3D12Fence *fence, UINT64 waitValue,
                            const rdcarray<std::function<bool()>> &callbacks);
   void TickASManagement();
-
-  // OMM Array VA mapping for replay address patching
-  void RecordOMMArrayVA(D3D12_GPU_VIRTUAL_ADDRESS originalVA, ResourceId asId);
-  ResourceId FindOMMArrayByOriginalVA(D3D12_GPU_VIRTUAL_ADDRESS originalVA) const;
 
   // this disk cache is primarily single threaded - either the disk cache thread owns
   // seeking/writing to the files, or during initial states that thread owns seeking/reading.
@@ -1467,10 +1463,6 @@ private:
   Threading::CriticalSection m_ASCacheThreadLock;
   int32_t m_ASCacheThreadRunning = 0;
 
-  // mapping from original (capture-time) OMM Array GPUVA to replay-time AS ResourceId
-  // used for patching BLAS OpacityMicromapArray references during replay
-  mutable Threading::CriticalSection m_OMMArrayVAMapLock;
-  std::unordered_map<D3D12_GPU_VIRTUAL_ADDRESS, ResourceId> m_OMMArrayVAMap;
   int32_t m_ASCacheThreadActive = 0;
   Threading::Semaphore *m_ASCacheThreadSemaphore = NULL;
   Threading::ThreadHandle m_ASCacheThread = {};

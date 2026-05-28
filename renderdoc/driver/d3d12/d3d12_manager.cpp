@@ -467,8 +467,9 @@ void D3D12Descriptor::Create(D3D12_DESCRIPTOR_HEAP_TYPE heapType, WrappedID3D12D
         }
       }
 
-      if(countRes == NULL && desc && (desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER ||
-                                     desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET))
+      if(countRes == NULL && desc &&
+         (desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER ||
+          desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET))
         desc->Buffer.CounterOffsetInBytes = 0;
 
       D3D12_UNORDERED_ACCESS_VIEW_DESC planeDesc;
@@ -2326,6 +2327,11 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
     unwrappedCmd->EndQuery(m_TimerQueryHeap, D3D12_QUERY_TYPE_TIMESTAMP, ret->query);
   }
 
+  // ensure the copy finishes before anything changes in the input buffer
+  D3D12_RESOURCE_BARRIER barrierBeforeSync = {};
+  barrierBeforeSync.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+  unwrappedCmd->ResourceBarrier(1, &barrierBeforeSync);
+
   if(inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)
   {
     ret->NumBLAS = inputs.NumDescs;
@@ -2398,10 +2404,68 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
   {
     ret->NumBLAS = 0;
 
-    // OMM Array builds don't require snapshotting input data to a readback buffer
-    // because the InputBuffer and PerOmmDescs are tracked as regular GPU resources.
-    // We just need a minimal ASBuildData entry for the AS lifecycle tracking.
-    // No byteSize allocation needed - the OMM Array buffer is owned by the application.
+    const D3D12_RAYTRACING_OPACITY_MICROMAP_ARRAY_DESC *ommDesc = inputs.pOpacityMicromapArrayDesc;
+    if(ommDesc)
+    {
+      // histogram entries are CPU pointers - always valid at capture time
+      ret->ommHistogram.assign(ommDesc->pOmmHistogram, ommDesc->NumOmmHistogramEntries);
+
+      // Calculate sizes by looking up the source buffers
+      ret->ommInputBufferSize = 0;
+      if(ommDesc->InputBuffer)
+      {
+        ResourceId srcId;
+        uint64_t srcOffs = 0;
+        WrappedID3D12Resource::GetResIDFromAddr(ommDesc->InputBuffer, srcId, srcOffs);
+        ID3D12Resource *srcBuf = m_wrappedDevice->GetResourceManager()->GetResAs<ID3D12Resource>(srcId);
+        if(srcBuf)
+          ret->ommInputBufferSize = srcBuf->GetDesc().Width - srcOffs;
+      }
+
+      ret->ommPerOmmDescStride = ommDesc->PerOmmDescs.StrideInBytes;
+      ret->ommPerOmmDescSize = 0;
+      if(ommDesc->PerOmmDescs.StartAddress)
+      {
+        ResourceId srcId;
+        uint64_t srcOffs = 0;
+        WrappedID3D12Resource::GetResIDFromAddr(ommDesc->PerOmmDescs.StartAddress, srcId, srcOffs);
+        ID3D12Resource *srcBuf = m_wrappedDevice->GetResourceManager()->GetResAs<ID3D12Resource>(srcId);
+        if(srcBuf)
+          ret->ommPerOmmDescSize = srcBuf->GetDesc().Width - srcOffs;
+      }
+
+      // GPU copy of InputBuffer and PerOmmDescs to readback storage
+      uint64_t byteSize = 0;
+      if(ret->ommInputBufferSize > 0)
+        byteSize += AlignUp16(ret->ommInputBufferSize);
+      if(ret->ommPerOmmDescSize > 0)
+        byteSize += AlignUp16(ret->ommPerOmmDescSize);
+      if(byteSize > 0)
+      {
+        m_GPUBufferAllocator.Alloc(D3D12GpuBufferHeapType::ReadBackHeap,
+                                   D3D12GpuBufferHeapMemoryFlag::Default, byteSize, 256,
+                                   &ret->buffer);
+        if(ret->buffer)
+        {
+          ID3D12Resource *dstRes = ret->buffer->Resource();
+          uint64_t dstOffs = ret->buffer->Offset();
+          uint64_t baseOffs = dstOffs;
+          if(ret->ommInputBufferSize > 0)
+          {
+            CopyFromVA(unwrappedCmd, dstRes, dstOffs, ommDesc->InputBuffer,
+                       ret->ommInputBufferSize);
+            ret->ommInputBufferRVA = dstOffs - baseOffs;
+            dstOffs = AlignUp16(dstOffs + ret->ommInputBufferSize);
+          }
+          if(ret->ommPerOmmDescSize > 0)
+          {
+            CopyFromVA(unwrappedCmd, dstRes, dstOffs, ommDesc->PerOmmDescs.StartAddress,
+                       ret->ommPerOmmDescSize);
+            ret->ommPerOmmDescRVA = dstOffs - baseOffs;
+          }
+        }
+      }
+    }
   }
   else
   {
@@ -2413,10 +2477,9 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
     ret->geoms.reserve(inputs.NumDescs);
     for(UINT i = 0; i < inputs.NumDescs; i++)
     {
-      const D3D12_RAYTRACING_GEOMETRY_DESC &src =
-          inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY
-              ? inputs.pGeometryDescs[i]
-              : *inputs.ppGeometryDescs[i];
+      const D3D12_RAYTRACING_GEOMETRY_DESC &src = inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY
+                                                      ? inputs.pGeometryDescs[i]
+                                                      : *inputs.ppGeometryDescs[i];
       ret->geoms.push_back(src);
     }
 
@@ -2426,18 +2489,21 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
               inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS);
     for(UINT i = 0; i < inputs.NumDescs; i++)
     {
-      const D3D12_RAYTRACING_GEOMETRY_DESC &src =
-          inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY
-              ? inputs.pGeometryDescs[i]
-              : *inputs.ppGeometryDescs[i];
+      const D3D12_RAYTRACING_GEOMETRY_DESC &src = inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY
+                                                      ? inputs.pGeometryDescs[i]
+                                                      : *inputs.ppGeometryDescs[i];
 
       ASBuildData::RVAOMMLinkageDesc linkageData = {};
       if(src.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES && src.OmmTriangles.pOmmLinkage)
       {
-        linkageData.OpacityMicromapIndexFormat = src.OmmTriangles.pOmmLinkage->OpacityMicromapIndexFormat;
-        linkageData.OpacityMicromapBaseLocation = src.OmmTriangles.pOmmLinkage->OpacityMicromapBaseLocation;
-        linkageData.OriginalOpacityMicromapArrayVA = src.OmmTriangles.pOmmLinkage->OpacityMicromapArray;
-        linkageData.OpacityMicromapIndexBuffer = src.OmmTriangles.pOmmLinkage->OpacityMicromapIndexBuffer.StartAddress;
+        linkageData.OpacityMicromapIndexFormat =
+            src.OmmTriangles.pOmmLinkage->OpacityMicromapIndexFormat;
+        linkageData.OpacityMicromapBaseLocation =
+            src.OmmTriangles.pOmmLinkage->OpacityMicromapBaseLocation;
+        linkageData.OriginalOpacityMicromapArrayVA =
+            src.OmmTriangles.pOmmLinkage->OpacityMicromapArray;
+        linkageData.OpacityMicromapIndexBuffer =
+            src.OmmTriangles.pOmmLinkage->OpacityMicromapIndexBuffer.StartAddress;
       }
       ret->ommLinkages.push_back(linkageData);
     }
@@ -2544,9 +2610,8 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
             idxSize = 4;
           else if(ommLinkage.OpacityMicromapIndexFormat == DXGI_FORMAT_R8_UINT)
             idxSize = 1;
-          uint32_t triangleCount = desc.Triangles.IndexCount > 0
-                                       ? desc.Triangles.IndexCount / 3
-                                       : desc.Triangles.VertexCount / 3;
+          uint32_t triangleCount = desc.Triangles.IndexCount > 0 ? desc.Triangles.IndexCount / 3
+                                                                 : desc.Triangles.VertexCount / 3;
           byteSize += (uint64_t)idxSize * triangleCount;
           byteSize = AlignUp16(byteSize);
         }
@@ -2686,13 +2751,12 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
           else if(ommLinkage.OpacityMicromapIndexFormat == DXGI_FORMAT_R8_UINT)
             idxSize = 1;
 
-          uint32_t triangleCount = desc.Triangles.IndexCount > 0
-                                       ? desc.Triangles.IndexCount / 3
-                                       : desc.Triangles.VertexCount / 3;
+          uint32_t triangleCount = desc.Triangles.IndexCount > 0 ? desc.Triangles.IndexCount / 3
+                                                                 : desc.Triangles.VertexCount / 3;
           uint64_t ommIdxBufSize = (uint64_t)idxSize * triangleCount;
 
-          CopyFromVA(unwrappedCmd, dstRes, dstOffset,
-                     ommLinkage.OpacityMicromapIndexBuffer, ommIdxBufSize);
+          CopyFromVA(unwrappedCmd, dstRes, dstOffset, ommLinkage.OpacityMicromapIndexBuffer,
+                     ommIdxBufSize);
 
           ommLinkage.OpacityMicromapIndexBuffer = dstOffset - baseOffset;
           RDCASSERT(ommLinkage.OpacityMicromapIndexBuffer + ommIdxBufSize <= allocedByteSize);
@@ -2704,19 +2768,9 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
   }
 
   // ensure the copy finishes before anything changes in the input buffer
-  D3D12_RESOURCE_BARRIER barrier = {};
-  barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-  unwrappedCmd->ResourceBarrier(1, &barrier);
-
-  // populate OMM Array references from linkage data
-  for(size_t gi = 0; gi < ret->ommLinkages.size(); gi++)
-  {
-    const ASBuildData::RVAOMMLinkageDesc &ommLink = ret->ommLinkages[gi];
-    if(ommLink.OriginalOpacityMicromapArrayVA != 0)
-    {
-      ret->ommReferences.push_back({ommLink.OriginalOpacityMicromapArrayVA, (uint64_t)gi});
-    }
-  }
+  D3D12_RESOURCE_BARRIER barrierAfterSync = {};
+  barrierAfterSync.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+  unwrappedCmd->ResourceBarrier(1, &barrierAfterSync);
 
   // only bother tracking build data with a buffer attached, as without the buffer there is nothing
   // to cache and we don't care too much about missing stats for empty/degenerate ASs
@@ -2734,35 +2788,7 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
                                    m_TimerReadbackBuffer->Offset() + sizeof(uint64_t) * ret->query);
   }
 
-  // record OMM Array references for later replay patching
-  {
-    SCOPED_LOCK(m_OMMArrayVAMapLock);
-    for(const ASBuildData::OMMRef &ommRef : ret->ommReferences)
-    {
-      // Ensure we don't have duplicate entries for the same VA
-      if(m_OMMArrayVAMap.find(ommRef.originalOMMArrayVA) == m_OMMArrayVAMap.end())
-        m_OMMArrayVAMap[ommRef.originalOMMArrayVA] = ResourceId();
-    }
-  }
-
   return ret;
-}
-
-void D3D12RTManager::RecordOMMArrayVA(D3D12_GPU_VIRTUAL_ADDRESS originalVA,
-                                       ResourceId asId)
-{
-  SCOPED_LOCK(m_OMMArrayVAMapLock);
-  m_OMMArrayVAMap[originalVA] = asId;
-}
-
-ResourceId D3D12RTManager::FindOMMArrayByOriginalVA(
-    D3D12_GPU_VIRTUAL_ADDRESS originalVA) const
-{
-  SCOPED_LOCK(m_OMMArrayVAMapLock);
-  auto it = m_OMMArrayVAMap.find(originalVA);
-  if(it != m_OMMArrayVAMap.end())
-    return it->second;
-  return ResourceId();
 }
 
 D3D12GpuBuffer *D3D12RTManager::UnrollBLASInstancesList(

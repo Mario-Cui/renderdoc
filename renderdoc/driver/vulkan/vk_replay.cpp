@@ -5714,3 +5714,8 @@ RDResult Vulkan_ProcessStructured(RDCFile *rdc, SDFile &output)
 
 static StructuredProcessRegistration VulkanProcessRegistration(RDCDriver::Vulkan,
                                                                &Vulkan_ProcessStructured);
+
+bool VulkanReplay::GetRayDispatchInvocations(uint32_t eventId, rdcarray<RayInvocationInfo> &invocations)
+{ (void)eventId; invocations.clear(); return false; }
+bool VulkanReplay::GetRayTraceCallData(uint32_t eventId, rdcarray<RayTraceCallInfo> &traceCalls)
+{ (void)eventId; traceCalls.clear(); return false; }

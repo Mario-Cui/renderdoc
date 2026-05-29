@@ -50,6 +50,7 @@ set(sources
     d3d12_overlay.cpp
     d3d12_pixelhistory.cpp
     d3d12_postvs.cpp
+    d3d12_raytrace_debug.cpp
     d3d12_rendermesh.cpp
     d3d12_rendertext.cpp
     d3d12_rendertext.h

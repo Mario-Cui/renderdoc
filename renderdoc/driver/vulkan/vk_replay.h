@@ -504,6 +504,8 @@ public:
 
   bool Depth3DSupported() { return m_TexRender.DummyImages[3][2] != VK_NULL_HANDLE; }
   bool DepthCubeSupported() { return m_TexRender.DepthCubesSupported; }
+  bool GetRayDispatchInvocations(uint32_t eventId, rdcarray<RayInvocationInfo> &invocations);
+  bool GetRayTraceCallData(uint32_t eventId, rdcarray<RayTraceCallInfo> &traceCalls);
 private:
   bool FetchShaderFeedback(uint32_t eventId);
   void ClearFeedbackCache();

@@ -1122,6 +1122,26 @@ texture to something compatible with the target file format.
 )");
   virtual bytebuf GetTextureData(ResourceId tex, const Subresource &sub) = 0;
 
+  DOCUMENT(R"(Retrieve debug information about each ray invocation at the given dispatch rays event.
+
+:param int eventId: The Event ID to fetch the data from.
+:param List[RayInvocationInfo] invocations: Output list of ray invocation information.
+:return: ``True`` if the data was successfully obtained.
+:rtype: bool
+)");
+  virtual bool GetRayDispatchInvocations(uint32_t eventId,
+                                         rdcarray<RayInvocationInfo> &invocations) = 0;
+
+  DOCUMENT(R"(Retrieve debug information about each TraceRay() call at the given dispatch rays event.
+
+:param int eventId: The Event ID to fetch the data from.
+:param List[RayTraceCallInfo] traceCalls: Output list of TraceRay call data.
+:return: ``True`` if the data was successfully obtained.
+:rtype: bool
+)");
+  virtual bool GetRayTraceCallData(uint32_t eventId,
+                                   rdcarray<RayTraceCallInfo> &traceCalls) = 0;
+
   static const uint32_t NoPreference = ~0U;
 
 protected:

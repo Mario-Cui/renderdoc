@@ -208,6 +208,23 @@ bool WrappedID3D12Device::Serialise_CreateStateObject(SerialiserType &ser,
 
     if(Replay_Debug_SingleThreadedCompilation())
     {
+      // save descriptor for post-processing (raytrace debug etc.)
+      wrapped->origSubobjects.assign(OrigDescriptor.pSubobjects, (size_t)OrigDescriptor.NumSubobjects);
+      wrapped->origShaderBytecodes.reserve(OrigDescriptor.NumSubobjects);
+      for(UINT i = 0; i < OrigDescriptor.NumSubobjects; i++)
+      {
+        if(OrigDescriptor.pSubobjects[i].Type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY)
+        {
+          D3D12_DXIL_LIBRARY_DESC *lib = (D3D12_DXIL_LIBRARY_DESC *)OrigDescriptor.pSubobjects[i].pDesc;
+          wrapped->origShaderBytecodes.push_back(
+              bytebuf((const byte *)lib->DXILLibrary.pShaderBytecode, lib->DXILLibrary.BytecodeLength));
+        }
+        else
+        {
+          wrapped->origShaderBytecodes.push_back({});
+        }
+      }
+
       RDResult res = DeferredStateObjCompile(m_pDevice5, OrigDescriptor, wrapped);
       Deserialise(OrigDescriptor);
 
@@ -227,6 +244,10 @@ bool WrappedID3D12Device::Serialise_CreateStateObject(SerialiserType &ser,
             wrappedD3D12->AddDeferredTime(timer.GetMilliseconds());
 
             Deserialise(OrigDescriptor);
+
+            // for deferred mode, the descriptor can't be saved here since it's
+            // consumed on a background thread - raytrace debug will reconstruct
+            // from exports instead
           },
           parents);
     }

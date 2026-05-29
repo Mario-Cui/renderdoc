@@ -363,6 +363,8 @@ public:
 
   GLuint GetShaderDebugMathProg();
   GLuint MakeShaderDebugSampleProg(const SamplingProgramConfig &config);
+  bool GetRayDispatchInvocations(uint32_t eventId, rdcarray<RayInvocationInfo> &invocations);
+  bool GetRayTraceCallData(uint32_t eventId, rdcarray<RayTraceCallInfo> &traceCalls);
 
 private:
   void OpenGLFillCBufferVariables(ResourceId shader, GLuint prog, bool bufferBacked, rdcstr prefix,

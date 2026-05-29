@@ -419,6 +419,11 @@ private:
   // if we remapped the texture for display, this contains the real data to return from
   // GetTextureData()
   rdcarray<bytebuf> m_RealTexData;
+
+  bool GetRayDispatchInvocations(uint32_t eventId, rdcarray<RayInvocationInfo> &invocations)
+  { (void)eventId; invocations.clear(); return false; }
+  bool GetRayTraceCallData(uint32_t eventId, rdcarray<RayTraceCallInfo> &traceCalls)
+  { (void)eventId; traceCalls.clear(); return false; }
 };
 
 RDResult IMG_CreateReplayDevice(RDCFile *rdc, IReplayDriver **driver)

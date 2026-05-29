@@ -1159,6 +1159,40 @@ public:
     return NULL;
   }
 
+  // for raytrace debug: find shader type info without needing to iterate private fields
+  struct ShaderExportInfo
+  {
+    rdcstr name;
+    rdcstr altName;
+    bool complete;
+    bool hitgroup;
+    ResourceId id;
+    uint32_t identifierIndex;
+  };
+  rdcarray<ShaderExportInfo> GetExportInfoList() const
+  {
+    rdcarray<ShaderExportInfo> ret;
+    ret.reserve(exportLookups.size());
+    for(size_t i = 0; i < exportLookups.size(); i++)
+    {
+      ShaderExportInfo info;
+      info.name = exportLookups[i].name;
+      info.altName = exportLookups[i].altName;
+      info.complete = exportLookups[i].complete;
+      info.hitgroup = exportLookups[i].hitgroup;
+      info.id = wrappedIdentifiers[i].id;
+      info.identifierIndex = wrappedIdentifiers[i].index;
+      ret.push_back(info);
+    }
+    return ret;
+  }
+
+  // access parent databases (for raytrace debug etc.)
+  const rdcarray<D3D12ShaderExportDatabase *> &GetParentDatabases() const { return parents; }
+
+  // access the underlying state object properties for identifier generation
+  ID3D12StateObjectProperties *GetRealObjectProperties() const { return m_StateObjectProps; }
+
   struct ExportedIdentifier
   {
     // the unwrapped identifier to patch the contents of ShaderIdentifier into
@@ -1271,6 +1305,11 @@ public:
   ALLOCATE_WITH_WRAPPED_POOL(WrappedID3D12StateObject);
 
   D3D12ShaderExportDatabase *exports = NULL;
+
+  // stored descriptor for post-processing (e.g. raytrace debug queries)
+  // populated during replay in Serialise_CreateStateObject
+  rdcarray<D3D12_STATE_SUBOBJECT> origSubobjects = {};
+  rdcarray<bytebuf> origShaderBytecodes = {};
 
   Threading::JobSystem::Job *deferredJob = NULL;
 

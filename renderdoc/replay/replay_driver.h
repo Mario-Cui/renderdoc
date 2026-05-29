@@ -309,6 +309,12 @@ public:
 
   virtual uint32_t PickVertex(uint32_t eventId, int32_t width, int32_t height,
                               const MeshDisplay &cfg, uint32_t x, uint32_t y) = 0;
+
+  // raytrace debug
+  virtual bool GetRayDispatchInvocations(uint32_t eventId,
+                                         rdcarray<RayInvocationInfo> &invocations) = 0;
+  virtual bool GetRayTraceCallData(uint32_t eventId,
+                                   rdcarray<RayTraceCallInfo> &traceCalls) = 0;
 };
 
 // for protocols, we extend the public interface a bit to add callbacks for remapping connection

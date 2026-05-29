@@ -601,4 +601,13 @@ private:
   rdcarray<CounterResult> FetchCountersAMD(const rdcarray<GPUCounter> &counters);
 
   NVD3D12Counters *m_pNVCounters = NULL;
+
+  // raytrace debug
+  bool GetRayDispatchInvocations(uint32_t eventId, rdcarray<RayInvocationInfo> &invocations);
+  bool GetRayTraceCallData(uint32_t eventId, rdcarray<RayTraceCallInfo> &traceCalls);
+
+  // internal helper for raytrace debug queries
+  bool InitPostRaytracingInvocations(uint32_t eventId,
+                                     rdcarray<RayInvocationInfo> *rayInvocationDatas,
+                                     rdcarray<RayTraceCallInfo> *rayTraceCallDatas);
 };

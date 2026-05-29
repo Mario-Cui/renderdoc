@@ -299,4 +299,8 @@ private:
   std::set<ResourceId> m_CustomShaders;
 
   friend struct ReplayOutput;
+
+  // IReplayController
+  bool GetRayDispatchInvocations(uint32_t eventId, rdcarray<RayInvocationInfo> &invocations);
+  bool GetRayTraceCallData(uint32_t eventId, rdcarray<RayTraceCallInfo> &traceCalls);
 };

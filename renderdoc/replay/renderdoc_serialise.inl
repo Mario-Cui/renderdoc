@@ -2435,3 +2435,53 @@ INSTANTIATE_SERIALISE_TYPE(VKPipe::ImageLayout)
 INSTANTIATE_SERIALISE_TYPE(VKPipe::ImageData)
 INSTANTIATE_SERIALISE_TYPE(VKPipe::ConditionalRendering)
 INSTANTIATE_SERIALISE_TYPE(VKPipe::State)
+
+template <typename SerialiserType>
+void DoSerialise(SerialiserType &ser, RayInvocationInfo &el)
+{
+  SERIALISE_MEMBER(shaderType);
+  SERIALISE_MEMBER(dispatchX);
+  SERIALISE_MEMBER(dispatchY);
+  SERIALISE_MEMBER(dispatchZ);
+  SERIALISE_MEMBER(originX);
+  SERIALISE_MEMBER(originY);
+  SERIALISE_MEMBER(originZ);
+  SERIALISE_MEMBER(dirX);
+  SERIALISE_MEMBER(dirY);
+  SERIALISE_MEMBER(dirZ);
+  SERIALISE_MEMBER(tMin);
+  SERIALISE_MEMBER(tCurrent);
+  SERIALISE_MEMBER(flags);
+  SERIALISE_MEMBER(instanceIndex);
+  SERIALISE_MEMBER(instanceId);
+  SERIALISE_MEMBER(geometryIndex);
+  SERIALISE_MEMBER(primitiveIndex);
+  SERIALISE_MEMBER(hitKind);
+  SIZE_CHECK(sizeof(RayInvocationInfo));
+}
+
+INSTANTIATE_SERIALISE_TYPE(RayInvocationInfo);
+
+template <typename SerialiserType>
+void DoSerialise(SerialiserType &ser, RayTraceCallInfo &el)
+{
+  SERIALISE_MEMBER(dispatchX);
+  SERIALISE_MEMBER(dispatchY);
+  SERIALISE_MEMBER(dispatchZ);
+  SERIALISE_MEMBER(maskAndShderType);
+  SERIALISE_MEMBER(flags);
+  SERIALISE_MEMBER(hitGroupIndex);
+  SERIALISE_MEMBER(hitGroupMul);
+  SERIALISE_MEMBER(missIndex);
+  SERIALISE_MEMBER(originX);
+  SERIALISE_MEMBER(originY);
+  SERIALISE_MEMBER(originZ);
+  SERIALISE_MEMBER(tMin);
+  SERIALISE_MEMBER(dirX);
+  SERIALISE_MEMBER(dirY);
+  SERIALISE_MEMBER(dirZ);
+  SERIALISE_MEMBER(tMax);
+  SIZE_CHECK(sizeof(RayTraceCallInfo));
+}
+
+INSTANTIATE_SERIALISE_TYPE(RayTraceCallInfo);

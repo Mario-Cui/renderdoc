@@ -114,6 +114,9 @@ enum ReplayProxyPacket
 
   eReplayProxy_ClearReplayCache,
   eReplayProxy_ReloadShaderDebugInformation,
+
+  eReplayProxy_GetRayDispatchInvocations,
+  eReplayProxy_GetRayTraceCallData,
 };
 
 DECLARE_REFLECTION_ENUM(ReplayProxyPacket);
@@ -600,6 +603,9 @@ public:
   {
     RDCERR("Calling proxy-render functions on a proxy serialiser");
   }
+
+  bool GetRayDispatchInvocations(uint32_t eventId, rdcarray<RayInvocationInfo> &invocations);
+  bool GetRayTraceCallData(uint32_t eventId, rdcarray<RayTraceCallInfo> &traceCalls);
 
 private:
   void EnsureTexCached(ResourceId &texid, CompType &typeCast, const Subresource &sub);

@@ -2126,3 +2126,87 @@ reported.
 };
 
 DECLARE_REFLECTION_STRUCT(ShaderReflection);
+
+DOCUMENT(R"(Information about a single ray invocation: which shader stage handled it,
+which thread it belongs to, and the ray parameters at that point.)")
+struct RayInvocationInfo
+{
+  DOCUMENT("The shader stage that handled this invocation (0xFF = total count marker).");
+  uint32_t shaderType;
+  DOCUMENT("The dispatch ray thread index X.");
+  uint32_t dispatchX;
+  DOCUMENT("The dispatch ray thread index Y.");
+  uint32_t dispatchY;
+  DOCUMENT("The dispatch ray thread index Z.");
+  uint32_t dispatchZ;
+  DOCUMENT("Ray origin X component.");
+  float originX;
+  DOCUMENT("Ray origin Y component.");
+  float originY;
+  DOCUMENT("Ray origin Z component.");
+  float originZ;
+  DOCUMENT("Ray direction X component.");
+  float dirX;
+  DOCUMENT("Ray direction Y component.");
+  float dirY;
+  DOCUMENT("Ray direction Z component.");
+  float dirZ;
+  DOCUMENT("Ray TMin value.");
+  float tMin;
+  DOCUMENT("Ray TCurrent value (at current hit).");
+  float tCurrent;
+  DOCUMENT("Ray flags.");
+  uint32_t flags;
+  DOCUMENT("Instance index.");
+  uint32_t instanceIndex;
+  DOCUMENT("Instance ID.");
+  uint32_t instanceId;
+  DOCUMENT("Geometry index.");
+  uint32_t geometryIndex;
+  DOCUMENT("Primitive index.");
+  uint32_t primitiveIndex;
+  DOCUMENT("Hit kind.");
+  uint32_t hitKind;
+};
+
+DECLARE_REFLECTION_STRUCT(RayInvocationInfo);
+
+DOCUMENT(R"(Information about a single TraceRay() call: the dispatch thread index,
+TraceRay arguments, and the ray origin/direction/tMin/tMax.)")
+struct RayTraceCallInfo
+{
+  DOCUMENT("The dispatch ray thread index X.");
+  uint32_t dispatchX;
+  DOCUMENT("The dispatch ray thread index Y.");
+  uint32_t dispatchY;
+  DOCUMENT("The dispatch ray thread index Z.");
+  uint32_t dispatchZ;
+  DOCUMENT("Encoded mask and shader type (low 8 bits = mask, next 8 bits = shader type).");
+  uint32_t maskAndShderType;
+  DOCUMENT("Ray flags passed to TraceRay.");
+  uint32_t flags;
+  DOCUMENT("Hit group index passed to TraceRay.");
+  uint32_t hitGroupIndex;
+  DOCUMENT("Hit group multiplier passed to TraceRay.");
+  uint32_t hitGroupMul;
+  DOCUMENT("Miss index passed to TraceRay.");
+  uint32_t missIndex;
+  DOCUMENT("Ray origin X component.");
+  float originX;
+  DOCUMENT("Ray origin Y component.");
+  float originY;
+  DOCUMENT("Ray origin Z component.");
+  float originZ;
+  DOCUMENT("Ray TMin value.");
+  float tMin;
+  DOCUMENT("Ray direction X component.");
+  float dirX;
+  DOCUMENT("Ray direction Y component.");
+  float dirY;
+  DOCUMENT("Ray direction Z component.");
+  float dirZ;
+  DOCUMENT("Ray TMax value.");
+  float tMax;
+};
+
+DECLARE_REFLECTION_STRUCT(RayTraceCallInfo);

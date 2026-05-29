@@ -3200,3 +3200,8 @@ bool ReplayProxy::Tick(int type)
 
   return true;
 }
+
+bool ReplayProxy::GetRayDispatchInvocations(uint32_t eventId, rdcarray<RayInvocationInfo> &invocations)
+{ (void)eventId; invocations.clear(); return false; }
+bool ReplayProxy::GetRayTraceCallData(uint32_t eventId, rdcarray<RayTraceCallInfo> &traceCalls)
+{ (void)eventId; traceCalls.clear(); return false; }

@@ -189,6 +189,11 @@ public:
   uint32_t PickVertex(uint32_t eventId, int32_t width, int32_t height, const MeshDisplay &cfg,
                       uint32_t x, uint32_t y);
 
+  bool GetRayDispatchInvocations(uint32_t eventId, rdcarray<RayInvocationInfo> &invocations)
+  { (void)eventId; invocations.clear(); return false; }
+  bool GetRayTraceCallData(uint32_t eventId, rdcarray<RayTraceCallInfo> &traceCalls)
+  { (void)eventId; traceCalls.clear(); return false; }
+
 private:
   virtual ~DummyDriver();
 

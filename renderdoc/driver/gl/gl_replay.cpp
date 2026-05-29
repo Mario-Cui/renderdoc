@@ -4573,3 +4573,8 @@ RDResult GL_CreateReplayDevice(RDCFile *rdc, const ReplayOptions &opts, IReplayD
 static DriverRegistration GLDriverRegistration(RDCDriver::OpenGL, &GL_CreateReplayDevice);
 
 #endif
+
+bool GLReplay::GetRayDispatchInvocations(uint32_t eventId, rdcarray<RayInvocationInfo> &invocations)
+{ (void)eventId; invocations.clear(); return false; }
+bool GLReplay::GetRayTraceCallData(uint32_t eventId, rdcarray<RayTraceCallInfo> &traceCalls)
+{ (void)eventId; traceCalls.clear(); return false; }

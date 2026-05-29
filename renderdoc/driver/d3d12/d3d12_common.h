@@ -712,6 +712,10 @@ struct D3D12_UNWRAPPED_STATE_OBJECT_DESC : public D3D12_STATE_OBJECT_DESC
 {
   D3D12_UNWRAPPED_STATE_OBJECT_DESC(const D3D12_STATE_OBJECT_DESC &wrappedDesc);
 
+  // accessors for post-processing (raytrace debug etc.)
+  void AddSubobject(const D3D12_STATE_SUBOBJECT &sub) { subobjects.push_back(sub); NumSubobjects = (UINT)subobjects.size(); pSubobjects = subobjects.data(); }
+  const rdcarray<D3D12_STATE_SUBOBJECT> &GetSubobjects() const { return subobjects; }
+
 private:
   rdcarray<D3D12_STATE_SUBOBJECT> subobjects;
   rdcarray<D3D12_GLOBAL_ROOT_SIGNATURE> unwrappedRootsigObjs;

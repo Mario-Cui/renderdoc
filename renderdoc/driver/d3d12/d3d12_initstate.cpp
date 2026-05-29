@@ -1575,32 +1575,6 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
             RDCERR("Failed to map builddata buffer for readback!");
             ret = false;
           }
-          else if(initial->buildData->Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_ARRAY)
-          {
-            // ---- DEBUG: verify captured OMM Array data ----
-            RDCLOG("[OMM_SERIALISE_CAPTURE] OMM_ARRAY buildData buffer=%llu bytes, ommInputBufferRVA=0x%llx size=%llu, ommPerOmmDescRVA=0x%llx size=%llu",
-                   ContentsLength,
-                   initial->buildData->ommInputBufferRVA, initial->buildData->ommInputBufferSize,
-                   initial->buildData->ommPerOmmDescRVA, initial->buildData->ommPerOmmDescSize);
-            if(initial->buildData->ommInputBufferSize > 0)
-            {
-              byte *inputData = BufferContents + initial->buildData->ommInputBufferRVA;
-              uint64_t dumpBytes = RDCMIN(initial->buildData->ommInputBufferSize, 64ULL);
-              rdcstr hex;
-              for(uint64_t i = 0; i < dumpBytes; i++)
-                hex += StringFormat::Fmt("%02x ", inputData[i]);
-              RDCLOG("[OMM_SERIALISE_CAPTURE] InputBuffer: %s", hex.c_str());
-            }
-            if(initial->buildData->ommPerOmmDescSize > 0)
-            {
-              byte *descData = BufferContents + initial->buildData->ommPerOmmDescRVA;
-              uint64_t dumpBytes = RDCMIN(initial->buildData->ommPerOmmDescSize, 32ULL);
-              rdcstr hex;
-              for(uint64_t i = 0; i < dumpBytes; i++)
-                hex += StringFormat::Fmt("%02x ", descData[i]);
-              RDCLOG("[OMM_SERIALISE_CAPTURE] PerOmmDescs: %s", hex.c_str());
-            }
-          }
         }
         else if(initial->buildData->diskCache.Valid())
         {
@@ -2433,34 +2407,6 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
                 link.OpacityMicromapArray = ommLink.OriginalOpacityMicromapArrayVA;
               tmpLinkDescs.push_back(link);
 
-              RDCLOG("[OMM_BLAS_REBUILD] geom[%zu] OMM_TRIANGLES: idxBuf=0x%llx idxFmt=%d baseLoc=%u ommArray=0x%llx (origVA=0x%llx)",
-                     gi,
-                     link.OpacityMicromapIndexBuffer.StartAddress,
-                     link.OpacityMicromapIndexFormat,
-                     link.OpacityMicromapBaseLocation,
-                     link.OpacityMicromapArray,
-                     ommLink.OriginalOpacityMicromapArrayVA);
-
-              // ---- DEBUG: dump OMM index buffer contents ----
-              if(ommLink.OpacityMicromapIndexBuffer != 0 && buildData->buffer)
-              {
-                uint64_t rva = ommLink.OpacityMicromapIndexBuffer - buildData->buffer->Address();
-                void *mapped = buildData->buffer->Map();
-                if(mapped)
-                {
-                  byte *bufData = (byte *)mapped + rva;
-                  // dump first 64 bytes or 8 entries for R32
-                  uint64_t idxSize = (ommLink.OpacityMicromapIndexFormat == DXGI_FORMAT_R32_UINT) ? 4 : 2;
-                  uint64_t dumpBytes = RDCMIN((uint64_t)64, idxSize * 8);
-                  rdcstr hex;
-                  for(uint64_t di = 0; di < dumpBytes; di++)
-                    hex += StringFormat::Fmt("%02x ", bufData[di]);
-                  RDCLOG("[OMM_DUMP] OMM index buffer (rva=0x%llx, %llu bytes): %s",
-                         rva, dumpBytes, hex.c_str());
-                  buildData->buffer->Unmap();
-                }
-              }
-
               dstGeom.OmmTriangles.pTriangles = &tmpTriDescs.back();
               dstGeom.OmmTriangles.pOmmLinkage = &tmpLinkDescs.back();
             }
@@ -2578,46 +2524,6 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
           desc.Inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
           desc.Inputs.NumDescs = 1;
           desc.Inputs.pOpacityMicromapArrayDesc = &ommArrDesc;
-
-          RDCLOG("[OMM_REBUILD] OMM Array %s -> VA=0x%llx baseVA=0x%llx histCount=%u InputBuffer=0x%llx PerOmmDescs={0x%llx,%llu}",
-                 ToStr(as->GetResourceID()).c_str(),
-                 desc.DestAccelerationStructureData,
-                 baseVA,
-                 ommArrDesc.NumOmmHistogramEntries,
-                 ommArrDesc.InputBuffer,
-                 ommArrDesc.PerOmmDescs.StartAddress,
-                 ommArrDesc.PerOmmDescs.StrideInBytes);
-
-          // ---- DEBUG: dump InputBuffer contents ----
-          if(buildData->ommInputBufferSize > 0)
-          {
-            void *mapped = buildData->buffer->Map();
-            if(mapped)
-            {
-              byte *bufData = (byte *)mapped + buildData->ommInputBufferRVA;
-              uint64_t dumpSize = RDCMIN(buildData->ommInputBufferSize, 64ULL);
-              rdcstr hex;
-              for(uint64_t i = 0; i < dumpSize; i++)
-                hex += StringFormat::Fmt("%02x ", bufData[i]);
-              RDCLOG("[OMM_DUMP] InputBuffer (first %llu bytes): %s", dumpSize, hex.c_str());
-              buildData->buffer->Unmap();
-            }
-          }
-          // ---- DEBUG: dump PerOmmDescs contents ----
-          if(buildData->ommPerOmmDescSize > 0)
-          {
-            void *mapped = buildData->buffer->Map();
-            if(mapped)
-            {
-              byte *bufData = (byte *)mapped + buildData->ommPerOmmDescRVA;
-              uint64_t dumpSize = RDCMIN(buildData->ommPerOmmDescSize, 32ULL);
-              rdcstr hex;
-              for(uint64_t i = 0; i < dumpSize; i++)
-                hex += StringFormat::Fmt("%02x ", bufData[i]);
-              RDCLOG("[OMM_DUMP] PerOmmDescs (first %llu bytes): %s", dumpSize, hex.c_str());
-              buildData->buffer->Unmap();
-            }
-          }
 
           // Query prebuild info for scratch buffer sizing
           m_Device->GetRaytracingAccelerationStructurePrebuildInfo(&desc.Inputs, &prebuild);

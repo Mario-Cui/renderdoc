@@ -1078,25 +1078,6 @@ bool WrappedID3D12GraphicsCommandList::Serialise_BuildRaytracingAccelerationStru
 
         if(!D3D12_Debug_RT_Auditing())
         {
-          if(AccStructDesc.Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL)
-          {
-            for(UINT gi = 0; gi < AccStructDesc.Inputs.NumDescs; gi++)
-            {
-              const D3D12_RAYTRACING_GEOMETRY_DESC &g = AccStructDesc.Inputs.pGeometryDescs[gi];
-              if(g.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES && g.OmmTriangles.pOmmLinkage)
-              {
-                RDCLOG("[OMM_FRAME_REPLAY] geom[%u] Type=OMM_TRIANGLES Flags=0x%x "
-                       "startAddr=0x%llx stride=%llu fmt=%d baseLoc=%u ommArray=0x%llx",
-                       gi, g.Flags,
-                       g.OmmTriangles.pOmmLinkage->OpacityMicromapIndexBuffer.StartAddress,
-                       g.OmmTriangles.pOmmLinkage->OpacityMicromapIndexBuffer.StrideInBytes,
-                       g.OmmTriangles.pOmmLinkage->OpacityMicromapIndexFormat,
-                       g.OmmTriangles.pOmmLinkage->OpacityMicromapBaseLocation,
-                       g.OmmTriangles.pOmmLinkage->OpacityMicromapArray);
-              }
-            }
-          }
-
           Unwrap4(list)->BuildRaytracingAccelerationStructure(&AccStructDesc, NumPostbuildInfoDescs,
                                                               pPostbuildInfoDescs);
         }
@@ -1137,25 +1118,6 @@ bool WrappedID3D12GraphicsCommandList::Serialise_BuildRaytracingAccelerationStru
 
       if(!D3D12_Debug_RT_Auditing())
       {
-        if(AccStructDesc.Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL)
-        {
-          for(UINT gi = 0; gi < AccStructDesc.Inputs.NumDescs; gi++)
-          {
-            const D3D12_RAYTRACING_GEOMETRY_DESC &g = AccStructDesc.Inputs.pGeometryDescs[gi];
-            if(g.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES && g.OmmTriangles.pOmmLinkage)
-            {
-              RDCLOG("[OMM_FRAME] geom[%u] Type=OMM_TRIANGLES Flags=0x%x "
-                     "startAddr=0x%llx stride=%llu fmt=%d baseLoc=%u ommArray=0x%llx",
-                     gi, g.Flags,
-                     g.OmmTriangles.pOmmLinkage->OpacityMicromapIndexBuffer.StartAddress,
-                     g.OmmTriangles.pOmmLinkage->OpacityMicromapIndexBuffer.StrideInBytes,
-                     g.OmmTriangles.pOmmLinkage->OpacityMicromapIndexFormat,
-                     g.OmmTriangles.pOmmLinkage->OpacityMicromapBaseLocation,
-                     g.OmmTriangles.pOmmLinkage->OpacityMicromapArray);
-            }
-          }
-        }
-
         Unwrap4(pCommandList)
             ->BuildRaytracingAccelerationStructure(&AccStructDesc, NumPostbuildInfoDescs,
                                                    pPostbuildInfoDescs);

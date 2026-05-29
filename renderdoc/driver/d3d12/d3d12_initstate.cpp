@@ -1583,30 +1583,6 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
         }
 
         buildData = initial->buildData;
-
-        // ---- DEBUG: dump OMM index buffer contents from captured buffer ----
-        if(BufferContents && buildData->Type != D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)
-        {
-          for(size_t gi = 0; gi < buildData->ommLinkages.size(); gi++)
-          {
-            const ASBuildData::RVAOMMLinkageDesc &ommLink = buildData->ommLinkages[gi];
-            if(ommLink.OpacityMicromapIndexBuffer != 0 && ommLink.OpacityMicromapIndexBuffer != ASBuildData::NULLVA)
-            {
-              uint64_t rva = ommLink.OpacityMicromapIndexBuffer;
-              UINT idxSize = 2;
-              DXGI_FORMAT fmt = ommLink.OpacityMicromapIndexFormat;
-              if(fmt == DXGI_FORMAT_R32_UINT) idxSize = 4;
-              else if(fmt == DXGI_FORMAT_R8_UINT) idxSize = 1;
-
-              uint64_t dumpBytes = RDCMIN((uint64_t)64, (uint64_t)idxSize * 8);
-              rdcstr hex;
-              for(uint64_t di = 0; di < dumpBytes; di++)
-                hex += StringFormat::Fmt("%02x ", BufferContents[rva + di]);
-              RDCLOG("[OMM_SER] geom[%zu] OMM index buffer rva=0x%llx fmt=%d idxSize=%u raw: %s",
-                     gi, rva, fmt, idxSize, hex.c_str());
-            }
-          }
-        }
       }
       else
       {
@@ -2434,38 +2410,6 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
                 link.OpacityMicromapArray = ommLink.OriginalOpacityMicromapArrayVA;
               tmpLinkDescs.push_back(link);
 
-              RDCLOG("[OMM_APPLY2] geom[%zu] Type=OMM_TRIANGLES Flags=0x%x "
-                     "startAddr=0x%llx stride=%llu fmt=%d baseLoc=%u ommArray=0x%llx",
-                     gi, srcGeom.Flags,
-                     link.OpacityMicromapIndexBuffer.StartAddress,
-                     link.OpacityMicromapIndexBuffer.StrideInBytes,
-                     link.OpacityMicromapIndexFormat,
-                     link.OpacityMicromapBaseLocation,
-                     link.OpacityMicromapArray);
-
-              // ---- DEBUG: dump OMM index buffer from UploadHeap buffer ----
-              if(ommLink.OpacityMicromapIndexBuffer != 0 && buildData->buffer)
-              {
-                uint64_t baseVA = buildData->buffer->Address();
-                uint64_t rva = ommLink.OpacityMicromapIndexBuffer - baseVA;
-                void *mapped = buildData->buffer->Map();
-                if(mapped)
-                {
-                  byte *bufData = (byte *)mapped + rva;
-                  UINT idxSize = 2;
-                  if(ommLink.OpacityMicromapIndexFormat == DXGI_FORMAT_R32_UINT) idxSize = 4;
-                  else if(ommLink.OpacityMicromapIndexFormat == DXGI_FORMAT_R8_UINT) idxSize = 1;
-                  uint64_t dumpBytes = RDCMIN((uint64_t)64, (uint64_t)idxSize * 8);
-                  rdcstr hex;
-                  for(uint64_t di = 0; di < dumpBytes; di++)
-                    hex += StringFormat::Fmt("%02x ", bufData[di]);
-                  RDCLOG("[OMM_APPLY] geom[%zu] OMM index buffer rva=0x%llx fmt=%d idxSize=%u addr=0x%llx: %s",
-                         gi, rva, ommLink.OpacityMicromapIndexFormat, idxSize,
-                         ommLink.OpacityMicromapIndexBuffer, hex.c_str());
-                  buildData->buffer->Unmap();
-                }
-              }
-
               dstGeom.OmmTriangles.pTriangles = &tmpTriDescs.back();
               dstGeom.OmmTriangles.pOmmLinkage = &tmpLinkDescs.back();
             }
@@ -2722,3 +2666,4 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
     RDCERR("Unexpected type needing an initial state created: %d", type);
   }
 }
+

@@ -2493,6 +2493,8 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
             src.OmmTriangles.pOmmLinkage->OpacityMicromapArray;
         linkageData.OpacityMicromapIndexBuffer =
             src.OmmTriangles.pOmmLinkage->OpacityMicromapIndexBuffer.StartAddress;
+        linkageData.OpacityMicromapIndexStride =
+            src.OmmTriangles.pOmmLinkage->OpacityMicromapIndexBuffer.StrideInBytes;
       }
       ret->ommLinkages.push_back(linkageData);
     }
@@ -2750,6 +2752,11 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
 
           ommLinkage.OpacityMicromapIndexBuffer = dstOffset - baseOffset;
           RDCASSERT(ommLinkage.OpacityMicromapIndexBuffer + ommIdxBufSize <= allocedByteSize);
+
+          RDCLOG("[OMM_CAP] geom[%llu] OMM index buffer: fmt=%d triangleCount=%u idxSize=%u rva=0x%llx size=%llu",
+                 (uint64_t)gi, ommLinkage.OpacityMicromapIndexFormat,
+                 triangleCount, idxSize,
+                 ommLinkage.OpacityMicromapIndexBuffer, ommIdxBufSize);
 
           dstOffset = AlignUp16(dstOffset + ommIdxBufSize);
         }

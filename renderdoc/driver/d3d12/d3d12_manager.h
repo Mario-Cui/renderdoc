@@ -1159,6 +1159,7 @@ struct ASBuildData
     UINT OpacityMicromapBaseLocation;
     uint64_t OpacityMicromapArrayRVA;             // RVA in ASBuildData buffer (0 = NULL)
     D3D12_GPU_VIRTUAL_ADDRESS OriginalOpacityMicromapArrayVA; // original GPUVA for replay patching
+    UINT64 OpacityMicromapIndexStride;            // StrideInBytes from original linkage desc
   };
 
   // RVA equivalent of D3D12_RAYTRACING_GEOMETRY_OMM_TRIANGLES_DESC.

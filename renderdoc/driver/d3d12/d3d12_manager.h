@@ -1408,7 +1408,8 @@ private:
   void CheckPendingCallbacks();
 
   void CopyFromVA(ID3D12GraphicsCommandList4 *unwrappedCmd, ID3D12Resource *dstRes,
-                  uint64_t dstOffset, D3D12_GPU_VIRTUAL_ADDRESS sourceVA, uint64_t byteSize);
+                  uint64_t dstOffset, D3D12_GPU_VIRTUAL_ADDRESS sourceVA, uint64_t byteSize,
+                  bool needsBarrier = false);
 
   WrappedID3D12Device *m_wrappedDevice;
   D3D12GpuBufferAllocator &m_GPUBufferAllocator;

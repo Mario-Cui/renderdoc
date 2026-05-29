@@ -2327,10 +2327,6 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
     unwrappedCmd->EndQuery(m_TimerQueryHeap, D3D12_QUERY_TYPE_TIMESTAMP, ret->query);
   }
 
-  // ensure the copy finishes before anything changes in the input buffer
-  D3D12_RESOURCE_BARRIER barrierBeforeSync = {};
-  barrierBeforeSync.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-  unwrappedCmd->ResourceBarrier(1, &barrierBeforeSync);
 
   if(inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)
   {
@@ -2345,16 +2341,8 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
       if(inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY)
       {
         // easy case, one copy of instances
-
-        ResourceId sourceBufferId;
-        D3D12BufferOffset sourceOffset;
-
-        WrappedID3D12Resource::GetResIDFromAddr(inputs.InstanceDescs, sourceBufferId, sourceOffset);
-        ID3D12Resource *sourceBuffer =
-            Unwrap(m_wrappedDevice->GetResourceManager()->GetResAs<ID3D12Resource>(sourceBufferId));
-
-        unwrappedCmd->CopyBufferRegion(ret->buffer->Resource(), ret->buffer->Offset(), sourceBuffer,
-                                       sourceOffset, byteSize);
+        CopyFromVA(unwrappedCmd, ret->buffer->Resource(), ret->buffer->Offset(),
+                   inputs.InstanceDescs, byteSize, true);
       }
       else
       {
@@ -2450,17 +2438,18 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
           ID3D12Resource *dstRes = ret->buffer->Resource();
           uint64_t dstOffs = ret->buffer->Offset();
           uint64_t baseOffs = dstOffs;
+
           if(ret->ommInputBufferSize > 0)
           {
             CopyFromVA(unwrappedCmd, dstRes, dstOffs, ommDesc->InputBuffer,
-                       ret->ommInputBufferSize);
+                       ret->ommInputBufferSize, true);
             ret->ommInputBufferRVA = dstOffs - baseOffs;
             dstOffs = AlignUp16(dstOffs + ret->ommInputBufferSize);
           }
           if(ret->ommPerOmmDescSize > 0)
           {
             CopyFromVA(unwrappedCmd, dstRes, dstOffs, ommDesc->PerOmmDescs.StartAddress,
-                       ret->ommPerOmmDescSize);
+                       ret->ommPerOmmDescSize, true);
             ret->ommPerOmmDescRVA = dstOffs - baseOffs;
           }
         }
@@ -2648,7 +2637,7 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
           byteSize = (desc.AABBs.AABBCount - 1) * desc.AABBs.AABBs.StrideInBytes;
           byteSize += sizeof(D3D12_RAYTRACING_AABB);
 
-          CopyFromVA(unwrappedCmd, dstRes, dstOffset, desc.AABBs.AABBs.RVA, byteSize);
+          CopyFromVA(unwrappedCmd, dstRes, dstOffset, desc.AABBs.AABBs.RVA, byteSize, true);
 
           desc.AABBs.AABBs.RVA = dstOffset - baseOffset;
           RDCASSERT(desc.AABBs.AABBs.RVA + byteSize <= allocedByteSize, desc.AABBs.AABBs.RVA,
@@ -2668,7 +2657,7 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
         {
           byteSize = sizeof(float) * 3 * 4;
 
-          CopyFromVA(unwrappedCmd, dstRes, dstOffset, desc.Triangles.Transform3x4, byteSize);
+          CopyFromVA(unwrappedCmd, dstRes, dstOffset, desc.Triangles.Transform3x4, byteSize, true);
 
           desc.Triangles.Transform3x4 = dstOffset - baseOffset;
           RDCASSERT(desc.Triangles.Transform3x4 + byteSize <= allocedByteSize,
@@ -2688,7 +2677,7 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
             isize = 4;
           byteSize = isize * desc.Triangles.IndexCount;
 
-          CopyFromVA(unwrappedCmd, dstRes, dstOffset, desc.Triangles.IndexBuffer, byteSize);
+          CopyFromVA(unwrappedCmd, dstRes, dstOffset, desc.Triangles.IndexBuffer, byteSize, true);
 
           desc.Triangles.IndexBuffer = dstOffset - baseOffset;
           RDCASSERT(desc.Triangles.IndexBuffer + byteSize <= allocedByteSize,
@@ -2714,7 +2703,8 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
                                    (RDCMAX(1U, estimatedVertexCount) - 1)) +
                                       GetByteSize(1, 1, 1, desc.Triangles.VertexFormat, 0));
 
-          unwrappedCmd->CopyBufferRegion(dstRes, dstOffset, Unwrap(sourceBuffer), srcOffs, vbSize);
+          CopyFromVA(unwrappedCmd, dstRes, dstOffset,
+                     sourceBuffer->GetGPUVirtualAddress() + srcOffs, vbSize, true);
 
           desc.Triangles.VertexBuffer.RVA = dstOffset - baseOffset;
           RDCASSERT(desc.Triangles.VertexBuffer.RVA + vbSize <= allocedByteSize,
@@ -2731,7 +2721,7 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
 
             byteSize += GetByteSize(1, 1, 1, desc.Triangles.VertexFormat, 0);
 
-            CopyFromVA(unwrappedCmd, dstRes, dstOffset, desc.Triangles.VertexBuffer.RVA, byteSize);
+            CopyFromVA(unwrappedCmd, dstRes, dstOffset, desc.Triangles.VertexBuffer.RVA, byteSize, true);
 
             desc.Triangles.VertexBuffer.RVA = dstOffset - baseOffset;
             RDCASSERT(desc.Triangles.VertexBuffer.RVA + byteSize <= allocedByteSize);
@@ -2756,7 +2746,7 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
           uint64_t ommIdxBufSize = (uint64_t)idxSize * triangleCount;
 
           CopyFromVA(unwrappedCmd, dstRes, dstOffset, ommLinkage.OpacityMicromapIndexBuffer,
-                     ommIdxBufSize);
+                     ommIdxBufSize, true);
 
           ommLinkage.OpacityMicromapIndexBuffer = dstOffset - baseOffset;
           RDCASSERT(ommLinkage.OpacityMicromapIndexBuffer + ommIdxBufSize <= allocedByteSize);
@@ -2851,14 +2841,55 @@ D3D12GpuBuffer *D3D12RTManager::UnrollBLASInstancesList(
 
 void D3D12RTManager::CopyFromVA(ID3D12GraphicsCommandList4 *unwrappedCmd, ID3D12Resource *dstRes,
                                 uint64_t dstOffset, D3D12_GPU_VIRTUAL_ADDRESS sourceVA,
-                                uint64_t byteSize)
+                                uint64_t byteSize, bool needsBarrier)
 {
   ResourceId srcId;
   uint64_t srcOffs = 0;
   WrappedID3D12Resource::GetResIDFromAddr(sourceVA, srcId, srcOffs);
   ID3D12Resource *srcBuf = m_wrappedDevice->GetResourceManager()->GetResAs<ID3D12Resource>(srcId);
 
+  if(!srcBuf)
+    return;
+
+  // Transition source buffer to COPY_SOURCE if needed, then restore after copy.
+  D3D12_RESOURCE_STATES originalState = D3D12_RESOURCE_STATE_COMMON;
+  bool needsRestore = false;
+
+  if(needsBarrier)
+  {
+    D3D12_HEAP_PROPERTIES heapProps;
+    bool isUpload = SUCCEEDED(srcBuf->GetHeapProperties(&heapProps, NULL)) &&
+                    heapProps.Type == D3D12_HEAP_TYPE_UPLOAD;
+
+    if(!isUpload && m_wrappedDevice->GetSubresourceStates(srcId).size() > 0)
+    {
+      originalState = m_wrappedDevice->GetSubresourceStates(srcId)[0].ToStates();
+      if(originalState != D3D12_RESOURCE_STATE_COPY_SOURCE)
+      {
+        D3D12_RESOURCE_BARRIER b = {};
+        b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        b.Transition.pResource = Unwrap(srcBuf);
+        b.Transition.StateBefore = originalState;
+        b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        unwrappedCmd->ResourceBarrier(1, &b);
+        needsRestore = true;
+      }
+    }
+  }
+
   unwrappedCmd->CopyBufferRegion(dstRes, dstOffset, Unwrap(srcBuf), srcOffs, byteSize);
+
+  if(needsRestore)
+  {
+    D3D12_RESOURCE_BARRIER b = {};
+    b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    b.Transition.pResource = Unwrap(srcBuf);
+    b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    b.Transition.StateAfter = originalState;
+    unwrappedCmd->ResourceBarrier(1, &b);
+  }
 }
 
 void D3D12RTManager::InitRayDispatchPatchingResources()

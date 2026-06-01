@@ -755,8 +755,9 @@ uint64_t D3D12ResourceManager::GetSize_InitialState(ResourceId id, const D3D12In
       ret += 64 + sizeof(ASBuildData::RVAOMMLinkageDesc) * buildData->geoms.size();
 
       // OMM Array build data
-      ret += 64 + sizeof(D3D12_RAYTRACING_OPACITY_MICROMAP_HISTOGRAM_ENTRY) * buildData->ommHistogram.size();
-      ret += 64 + sizeof(uint64_t) * 5; // ommInputBufferRVA/Size, ommPerOmmDescRVA/Size/Stride
+      ret += 64 + sizeof(D3D12_RAYTRACING_OPACITY_MICROMAP_HISTOGRAM_ENTRY) *
+                      buildData->ommHistogram.size();
+      ret += 64 + sizeof(uint64_t) * 5;    // ommInputBufferRVA/Size, ommPerOmmDescRVA/Size/Stride
 
       if(buildData->buffer)
         ret += 64 + buildData->buffer->Size();
@@ -1593,13 +1594,27 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
       SERIALISE_ELEMENT(buildData->Flags);
       SERIALISE_ELEMENT(buildData->NumBLAS);
       SERIALISE_ELEMENT(buildData->geoms);
-      SERIALISE_ELEMENT(buildData->ommLinkages);
-      SERIALISE_ELEMENT(buildData->ommHistogram);
-      SERIALISE_ELEMENT(buildData->ommInputBufferRVA);
-      SERIALISE_ELEMENT(buildData->ommInputBufferSize);
-      SERIALISE_ELEMENT(buildData->ommPerOmmDescRVA);
-      SERIALISE_ELEMENT(buildData->ommPerOmmDescSize);
-      SERIALISE_ELEMENT(buildData->ommPerOmmDescStride);
+
+      if(ser.VersionAtLeast(0x21))
+      {
+        SERIALISE_ELEMENT(buildData->ommLinkages);
+        SERIALISE_ELEMENT(buildData->ommHistogram);
+        SERIALISE_ELEMENT(buildData->ommInputBufferRVA);
+        SERIALISE_ELEMENT(buildData->ommInputBufferSize);
+        SERIALISE_ELEMENT(buildData->ommPerOmmDescRVA);
+        SERIALISE_ELEMENT(buildData->ommPerOmmDescSize);
+        SERIALISE_ELEMENT(buildData->ommPerOmmDescStride);
+      }
+      else
+      {
+        buildData->ommLinkages.clear();
+        buildData->ommHistogram.clear();
+        buildData->ommInputBufferRVA = 0;
+        buildData->ommInputBufferSize = 0;
+        buildData->ommPerOmmDescRVA = 0;
+        buildData->ommPerOmmDescSize = 0;
+        buildData->ommPerOmmDescStride = 0;
+      }
 
       // serialise the size separately so we can recreate on replay
       SERIALISE_ELEMENT(ContentsLength);
@@ -2332,8 +2347,7 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
           desc.Inputs.NumDescs = buildData->NumBLAS;
           desc.Inputs.InstanceDescs = buildData->buffer ? buildData->buffer->Address() : 0;
         }
-        else if(buildData->Type ==
-                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_ARRAY)
+        else if(buildData->Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_ARRAY)
         {
           // Set up OMM Array desc from captured build data
           desc.Inputs.pOpacityMicromapArrayDesc = NULL;
@@ -2387,10 +2401,8 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
               // address system so it points to the replay-time location.
               const ASBuildData::RVAOMMLinkageDesc &ommLink = buildData->ommLinkages[gi];
               D3D12_RAYTRACING_GEOMETRY_OMM_LINKAGE_DESC link = {};
-              link.OpacityMicromapIndexBuffer.StartAddress =
-                  ommLink.OpacityMicromapIndexBuffer;
-              link.OpacityMicromapIndexBuffer.StrideInBytes =
-                  ommLink.OpacityMicromapIndexStride;
+              link.OpacityMicromapIndexBuffer.StartAddress = ommLink.OpacityMicromapIndexBuffer;
+              link.OpacityMicromapIndexBuffer.StrideInBytes = ommLink.OpacityMicromapIndexStride;
               link.OpacityMicromapIndexFormat = ommLink.OpacityMicromapIndexFormat;
               link.OpacityMicromapBaseLocation = ommLink.OpacityMicromapBaseLocation;
 
@@ -2398,7 +2410,8 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
               {
                 ResourceId bufId;
                 UINT64 bufOffs = 0;
-                m_Device->GetResIDFromOrigAddr(ommLink.OriginalOpacityMicromapArrayVA, bufId, bufOffs);
+                m_Device->GetResIDFromOrigAddr(ommLink.OriginalOpacityMicromapArrayVA, bufId,
+                                               bufOffs);
                 if(bufId != ResourceId() && HasResource(bufId))
                 {
                   ID3D12Resource *buf = GetResAs<ID3D12Resource>(bufId);
@@ -2504,8 +2517,7 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
           }
         }
       }
-      else if(buildData->Type ==
-              D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_ARRAY)
+      else if(buildData->Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_ARRAY)
       {
         // Rebuild OMM Array from captured build data
         desc.DestAccelerationStructureData = as->GetVirtualAddress();
@@ -2666,4 +2678,3 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *res, D3D12Initi
     RDCERR("Unexpected type needing an initial state created: %d", type);
   }
 }
-

@@ -49,6 +49,7 @@ class DebugMessageView;
 class LogView;
 class CommentView;
 class PerformanceCounterViewer;
+class RayTraceInfoViewer;
 class StatisticsViewer;
 class TimelineBar;
 class PythonShell;
@@ -222,6 +223,7 @@ public:
   IDiagnosticLogView *GetDiagnosticLogView() override;
   ICommentView *GetCommentView() override;
   IPerformanceCounterViewer *GetPerformanceCounterViewer() override;
+  IRayTraceInfoViewer *GetRayTraceInfoViewer() override;
   IStatisticsViewer *GetStatisticsViewer() override;
   ITimelineBar *GetTimelineBar() override;
   IPythonShell *GetPythonShell() override;
@@ -238,6 +240,7 @@ public:
   bool HasDiagnosticLogView() override { return m_DiagnosticLogView != NULL; }
   bool HasCommentView() override { return m_CommentView != NULL; }
   bool HasPerformanceCounterViewer() override { return m_PerformanceCounterViewer != NULL; }
+  bool HasRayTraceInfoViewer() override { return m_RayTraceInfoViewer != NULL; }
   bool HasStatisticsViewer() override { return m_StatisticsViewer != NULL; }
   bool HasTimelineBar() override { return m_TimelineBar != NULL; }
   bool HasPythonShell() override { return m_PythonShell != NULL; }
@@ -253,6 +256,7 @@ public:
   void ShowDiagnosticLogView() override;
   void ShowCommentView() override;
   void ShowPerformanceCounterViewer() override;
+  void ShowRayTraceInfoViewer() override;
   void ShowStatisticsViewer() override;
   void ShowTimelineBar() override;
   void ShowPythonShell() override;
@@ -448,6 +452,7 @@ private:
   LogView *m_DiagnosticLogView = NULL;
   CommentView *m_CommentView = NULL;
   PerformanceCounterViewer *m_PerformanceCounterViewer = NULL;
+  RayTraceInfoViewer *m_RayTraceInfoViewer = NULL;
   StatisticsViewer *m_StatisticsViewer = NULL;
   TimelineBar *m_TimelineBar = NULL;
   PythonShell *m_PythonShell = NULL;

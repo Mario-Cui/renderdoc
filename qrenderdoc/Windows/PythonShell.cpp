@@ -708,6 +708,10 @@ struct CaptureContextInvoker : ObjectForwarder<ICaptureContext>
     return InvokeRetFunction<IPerformanceCounterViewer *>(
         &ICaptureContext::GetPerformanceCounterViewer);
   }
+  virtual IRayTraceInfoViewer *GetRayTraceInfoViewer() override
+  {
+    return InvokeRetFunction<IRayTraceInfoViewer *>(&ICaptureContext::GetRayTraceInfoViewer);
+  }
   virtual IStatisticsViewer *GetStatisticsViewer() override
   {
     return InvokeRetFunction<IStatisticsViewer *>(&ICaptureContext::GetStatisticsViewer);
@@ -768,6 +772,10 @@ struct CaptureContextInvoker : ObjectForwarder<ICaptureContext>
   {
     return InvokeRetFunction<bool>(&ICaptureContext::HasPerformanceCounterViewer);
   }
+  virtual bool HasRayTraceInfoViewer() override
+  {
+    return InvokeRetFunction<bool>(&ICaptureContext::HasRayTraceInfoViewer);
+  }
   virtual bool HasStatisticsViewer() override
   {
     return InvokeRetFunction<bool>(&ICaptureContext::HasStatisticsViewer);
@@ -822,6 +830,10 @@ struct CaptureContextInvoker : ObjectForwarder<ICaptureContext>
   virtual void ShowPerformanceCounterViewer() override
   {
     InvokeVoidFunction(&ICaptureContext::ShowPerformanceCounterViewer);
+  }
+  virtual void ShowRayTraceInfoViewer() override
+  {
+    InvokeVoidFunction(&ICaptureContext::ShowRayTraceInfoViewer);
   }
   virtual void ShowStatisticsViewer() override
   {

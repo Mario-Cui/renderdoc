@@ -2437,7 +2437,7 @@ INSTANTIATE_SERIALISE_TYPE(VKPipe::ConditionalRendering)
 INSTANTIATE_SERIALISE_TYPE(VKPipe::State)
 
 template <typename SerialiserType>
-void DoSerialise(SerialiserType &ser, RayInvocationInfo &el)
+void DoSerialise(SerialiserType &ser, RayHitInfo &el)
 {
   SERIALISE_MEMBER(shaderType);
   SERIALISE_MEMBER(dispatchX);
@@ -2457,13 +2457,13 @@ void DoSerialise(SerialiserType &ser, RayInvocationInfo &el)
   SERIALISE_MEMBER(geometryIndex);
   SERIALISE_MEMBER(primitiveIndex);
   SERIALISE_MEMBER(hitKind);
-  SIZE_CHECK(sizeof(RayInvocationInfo));
+  SIZE_CHECK(sizeof(RayHitInfo));
 }
 
-INSTANTIATE_SERIALISE_TYPE(RayInvocationInfo);
+INSTANTIATE_SERIALISE_TYPE(RayHitInfo);
 
 template <typename SerialiserType>
-void DoSerialise(SerialiserType &ser, RayTraceCallInfo &el)
+void DoSerialise(SerialiserType &ser, RayCallInfo &el)
 {
   SERIALISE_MEMBER(dispatchX);
   SERIALISE_MEMBER(dispatchY);
@@ -2481,7 +2481,7 @@ void DoSerialise(SerialiserType &ser, RayTraceCallInfo &el)
   SERIALISE_MEMBER(dirY);
   SERIALISE_MEMBER(dirZ);
   SERIALISE_MEMBER(tMax);
-  SIZE_CHECK(sizeof(RayTraceCallInfo));
+  SIZE_CHECK(sizeof(RayCallInfo));
 }
 
-INSTANTIATE_SERIALISE_TYPE(RayTraceCallInfo);
+INSTANTIATE_SERIALISE_TYPE(RayCallInfo);

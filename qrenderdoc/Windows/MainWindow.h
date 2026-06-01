@@ -141,6 +141,7 @@ public:
   void showTimelineBar() { on_action_Timeline_triggered(); }
   void showPythonShell() { on_action_Python_Shell_triggered(); }
   void showPerformanceCounterViewer() { on_action_Counter_Viewer_triggered(); }
+  void showRayTraceInfoViewer() { on_action_Ray_Trace_Info_Viewer_triggered(); }
   void showResourceInspector() { on_action_Resource_Inspector_triggered(); }
   void showExtensionManager() { on_action_Manage_Extensions_triggered(); }
   void PopulateRecentCaptureFiles();
@@ -184,6 +185,7 @@ private slots:
   void on_action_Build_Release_Downloads_triggered();
   void on_action_Show_Tips_triggered();
   void on_action_Counter_Viewer_triggered();
+  void on_action_Ray_Trace_Info_Viewer_triggered();
   void on_action_Resource_Inspector_triggered();
   void on_action_Send_Error_Report_triggered();
   void on_action_Check_for_Updates_triggered();

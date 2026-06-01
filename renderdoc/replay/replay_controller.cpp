@@ -2361,14 +2361,14 @@ void ReplayController::FetchPipelineState(uint32_t eventId)
   m_PipeState.SetDescriptorAccess(std::move(access), std::move(descs), std::move(samps));
 }
 
-bool ReplayController::GetRayDispatchInvocations(uint32_t eventId,
-                                                  rdcarray<RayInvocationInfo> &invocations)
+bool ReplayController::GetRayHitData(uint32_t eventId,
+                                                  rdcarray<RayHitInfo> &invocations)
 {
-  return m_pDevice->GetRayDispatchInvocations(eventId, invocations);
+  return m_pDevice->GetRayHitData(eventId, invocations);
 }
 
-bool ReplayController::GetRayTraceCallData(uint32_t eventId,
-                                            rdcarray<RayTraceCallInfo> &traceCalls)
+bool ReplayController::GetRayCallData(uint32_t eventId,
+                                            rdcarray<RayCallInfo> &traceCalls)
 {
-  return m_pDevice->GetRayTraceCallData(eventId, traceCalls);
+  return m_pDevice->GetRayCallData(eventId, traceCalls);
 }

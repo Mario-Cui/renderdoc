@@ -733,6 +733,7 @@ Program::Program(const byte *bytes, size_t length) : alloc(32 * 1024)
             newType->scalarType = Type::Float;
             newType->bitWidth = 32;
 
+            m_FloatType = newType;
             m_Types.push_back(newType);
           }
           else if(IS_KNOWN(typ.id, TypeRecord::DOUBLE))

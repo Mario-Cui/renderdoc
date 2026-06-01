@@ -463,7 +463,7 @@ struct rdcwstr : private rdcarray<wchar_t>
   wchar_t *data() { return rdcarray<wchar_t>::data(); }
   const wchar_t *c_str() const { return rdcarray<wchar_t>::data(); }
   using rdcarray<wchar_t>::operator[];
-  size_t length() const { return rdcarray<wchar_t>::size() - 1; }
+  size_t length() const { return rdcarray<wchar_t>::size() == 0 ? 0 : rdcarray<wchar_t>::size() - 1; }
 };
 
 // implemented per-platform

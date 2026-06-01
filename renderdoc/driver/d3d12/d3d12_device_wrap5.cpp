@@ -157,12 +157,6 @@ bool WrappedID3D12Device::Serialise_CreateStateObject(SerialiserType &ser,
 
   if(IsReplayingAndReading())
   {
-    // we steal the serialised descriptor here so we can pass it to jobs without its contents and
-    // all of the allocated structures and arrays being deserialised. We add a job which waits on
-    // the compiles then deserialises this manually.
-    D3D12_STATE_OBJECT_DESC OrigDescriptor = Descriptor;
-    Descriptor = {};
-
     m_UsedDXIL = true;
 
     if(!m_pDevice5)
@@ -178,14 +172,17 @@ bool WrappedID3D12Device::Serialise_CreateStateObject(SerialiserType &ser,
     wrapped->exports =
         new D3D12ShaderExportDatabase(pStateObject, GetResourceManager()->GetRTManager());
 
-    // TODO: Apply m_GlobalEXTUAV, m_GlobalEXTUAVSpace for processing extensions in the DXBC files?
+    // Steal the descriptor into the wrapped object so its subobject data
+    // stays alive for post-processing (raytrace debug etc.)
+    wrapped->origDescriptor = Descriptor;
+    Descriptor = {};
 
     AddResource(pStateObject, ResourceType::PipelineState, "State Object");
 
     rdcarray<Threading::JobSystem::Job *> parents;
 
-    const D3D12_STATE_SUBOBJECT *subs = OrigDescriptor.pSubobjects;
-    for(UINT i = 0; i < OrigDescriptor.NumSubobjects; i++)
+    const D3D12_STATE_SUBOBJECT *subs = wrapped->origDescriptor.pSubobjects;
+    for(UINT i = 0; i < wrapped->origDescriptor.NumSubobjects; i++)
     {
       if(subs[i].Type == D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE ||
          subs[i].Type == D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE)
@@ -208,25 +205,7 @@ bool WrappedID3D12Device::Serialise_CreateStateObject(SerialiserType &ser,
 
     if(Replay_Debug_SingleThreadedCompilation())
     {
-      // save descriptor for post-processing (raytrace debug etc.)
-      wrapped->origSubobjects.assign(OrigDescriptor.pSubobjects, (size_t)OrigDescriptor.NumSubobjects);
-      wrapped->origShaderBytecodes.reserve(OrigDescriptor.NumSubobjects);
-      for(UINT i = 0; i < OrigDescriptor.NumSubobjects; i++)
-      {
-        if(OrigDescriptor.pSubobjects[i].Type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY)
-        {
-          D3D12_DXIL_LIBRARY_DESC *lib = (D3D12_DXIL_LIBRARY_DESC *)OrigDescriptor.pSubobjects[i].pDesc;
-          wrapped->origShaderBytecodes.push_back(
-              bytebuf((const byte *)lib->DXILLibrary.pShaderBytecode, lib->DXILLibrary.BytecodeLength));
-        }
-        else
-        {
-          wrapped->origShaderBytecodes.push_back({});
-        }
-      }
-
-      RDResult res = DeferredStateObjCompile(m_pDevice5, OrigDescriptor, wrapped);
-      Deserialise(OrigDescriptor);
+      RDResult res = DeferredStateObjCompile(m_pDevice5, wrapped->origDescriptor, wrapped);
 
       if(res != ResultCode::Succeeded)
       {
@@ -237,17 +216,11 @@ bool WrappedID3D12Device::Serialise_CreateStateObject(SerialiserType &ser,
     else
     {
       wrapped->deferredJob = Threading::JobSystem::AddJob(
-          [wrappedD3D12 = this, device5 = m_pDevice5, OrigDescriptor, wrapped]() {
+          [wrappedD3D12 = this, device5 = m_pDevice5, wrapped]() {
             PerformanceTimer timer;
             wrappedD3D12->CheckDeferredResult(
-                DeferredStateObjCompile(device5, OrigDescriptor, wrapped));
+                DeferredStateObjCompile(device5, wrapped->origDescriptor, wrapped));
             wrappedD3D12->AddDeferredTime(timer.GetMilliseconds());
-
-            Deserialise(OrigDescriptor);
-
-            // for deferred mode, the descriptor can't be saved here since it's
-            // consumed on a background thread - raytrace debug will reconstruct
-            // from exports instead
           },
           parents);
     }

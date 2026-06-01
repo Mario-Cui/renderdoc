@@ -60,6 +60,7 @@ public:
   using Program::GetBoolType;
   using Program::GetInt32Type;
   using Program::GetInt8Type;
+  using Program::GetFloatType;
   using Program::GetPointerType;
 
   int32_t GetKind(const rdcstr &kind) { return m_Kinds.indexOf(kind); }
@@ -127,6 +128,18 @@ public:
   void SetASPayloadSize(uint32_t payloadSize);
   void SetMSPayloadSize(uint32_t payloadSize);
   void PatchGlobalShaderFlags(std::function<void(DXBC::GlobalShaderFlags &)> patcher);
+
+  // raytrace debug extensions
+  Function *DeclareFunctionNoCheck(const rdcstr &name, const Type *retType,
+                                   rdcarray<const Type *> params, Attribute desiredAttrs);
+  rdcarray<DXIL::RDATData::FunctionInfo2> &GetRDATFunctionInfos();
+  void RegisterRDATUAV(uint32_t resourceIndex, uint32_t space, uint32_t regBase,
+                       uint32_t regEnd, ResourceKind kind,
+                       DXIL::RDATData::ResourceFlags flags, const rdcstr &name);
+  GlobalVar *CreateGlobalVar(const Type *type, const rdcstr &name, GlobalFlags flags,
+                             const Constant *initialiser = NULL, uint32_t align = 0);
+  Metadata *CreateBitcastMetadata(GlobalVar *src, const Type *dstType);
+
 private:
   bytebuf &m_OutBlob;
 

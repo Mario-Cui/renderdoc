@@ -1208,6 +1208,23 @@ protected:
 
 DECLARE_REFLECTION_STRUCT(IPerformanceCounterViewer);
 
+DOCUMENT(R"(A viewer for ray tracing invocation data within a capture.)")
+struct IRayTraceInfoViewer
+{
+  DOCUMENT(R"(Retrieves the QWidget for this :class:`RayTraceInfoViewer`.
+
+:return: Return the widget handle.
+:rtype: QWidget
+)");
+  virtual QWidget *Widget() = 0;
+
+protected:
+  IRayTraceInfoViewer() = default;
+  ~IRayTraceInfoViewer() = default;
+};
+
+DECLARE_REFLECTION_STRUCT(IRayTraceInfoViewer);
+
 DOCUMENT(R"(The interactive python shell.
 
 This window is retrieved by calling :meth:`CaptureContext.GetPythonShell`.
@@ -2598,6 +2615,13 @@ on the UI thread.
 )");
   virtual IPerformanceCounterViewer *GetPerformanceCounterViewer() = 0;
 
+  DOCUMENT(R"(Retrieve the current singleton :class:`RayTraceInfoViewer`.
+
+:return: The current window, which is created (but not shown) it there wasn't one open.
+:rtype: RayTraceInfoViewer
+)");
+  virtual IRayTraceInfoViewer *GetRayTraceInfoViewer() = 0;
+
   DOCUMENT(R"(Retrieve the current singleton :class:`StatisticsViewer`.
 
 :return: The current window, which is created (but not shown) it there wasn't one open.
@@ -2703,6 +2727,13 @@ on the UI thread.
 )");
   virtual bool HasPerformanceCounterViewer() = 0;
 
+  DOCUMENT(R"(Check if there is a current :class:`RayTraceInfoViewer` open.
+
+:return: ``True`` if there is a window open.
+:rtype: bool
+)");
+  virtual bool HasRayTraceInfoViewer() = 0;
+
   DOCUMENT(R"(Check if there is a current :class:`StatisticsViewer` open.
 
 :return: ``True`` if there is a window open.
@@ -2761,6 +2792,9 @@ place if needed.
       "Raise the current :class:`PerformanceCounterViewer`, showing it in the default place if "
       "needed.");
   virtual void ShowPerformanceCounterViewer() = 0;
+  DOCUMENT(
+      "Raise the current :class:`RayTraceInfoViewer`, showing it in the default place if needed.");
+  virtual void ShowRayTraceInfoViewer() = 0;
   DOCUMENT(
       "Raise the current :class:`StatisticsViewer`, showing it in the default place if needed.");
   virtual void ShowStatisticsViewer() = 0;

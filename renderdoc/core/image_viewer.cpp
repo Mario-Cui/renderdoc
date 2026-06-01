@@ -420,9 +420,9 @@ private:
   // GetTextureData()
   rdcarray<bytebuf> m_RealTexData;
 
-  bool GetRayDispatchInvocations(uint32_t eventId, rdcarray<RayInvocationInfo> &invocations)
+  bool GetRayHitData(uint32_t eventId, rdcarray<RayHitInfo> &invocations)
   { (void)eventId; invocations.clear(); return false; }
-  bool GetRayTraceCallData(uint32_t eventId, rdcarray<RayTraceCallInfo> &traceCalls)
+  bool GetRayCallData(uint32_t eventId, rdcarray<RayCallInfo> &traceCalls)
   { (void)eventId; traceCalls.clear(); return false; }
 };
 

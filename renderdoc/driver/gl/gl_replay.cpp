@@ -4574,7 +4574,7 @@ static DriverRegistration GLDriverRegistration(RDCDriver::OpenGL, &GL_CreateRepl
 
 #endif
 
-bool GLReplay::GetRayDispatchInvocations(uint32_t eventId, rdcarray<RayInvocationInfo> &invocations)
+bool GLReplay::GetRayHitData(uint32_t eventId, rdcarray<RayHitInfo> &invocations)
 { (void)eventId; invocations.clear(); return false; }
-bool GLReplay::GetRayTraceCallData(uint32_t eventId, rdcarray<RayTraceCallInfo> &traceCalls)
+bool GLReplay::GetRayCallData(uint32_t eventId, rdcarray<RayCallInfo> &traceCalls)
 { (void)eventId; traceCalls.clear(); return false; }

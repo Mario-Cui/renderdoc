@@ -311,10 +311,10 @@ public:
                               const MeshDisplay &cfg, uint32_t x, uint32_t y) = 0;
 
   // raytrace debug
-  virtual bool GetRayDispatchInvocations(uint32_t eventId,
-                                         rdcarray<RayInvocationInfo> &invocations) = 0;
-  virtual bool GetRayTraceCallData(uint32_t eventId,
-                                   rdcarray<RayTraceCallInfo> &traceCalls) = 0;
+  virtual bool GetRayHitData(uint32_t eventId,
+                                         rdcarray<RayHitInfo> &invocations) = 0;
+  virtual bool GetRayCallData(uint32_t eventId,
+                                   rdcarray<RayCallInfo> &traceCalls) = 0;
 };
 
 // for protocols, we extend the public interface a bit to add callbacks for remapping connection

@@ -1307,9 +1307,9 @@ public:
   D3D12ShaderExportDatabase *exports = NULL;
 
   // stored descriptor for post-processing (e.g. raytrace debug queries)
-  // populated during replay in Serialise_CreateStateObject
-  rdcarray<D3D12_STATE_SUBOBJECT> origSubobjects = {};
-  rdcarray<bytebuf> origShaderBytecodes = {};
+  // populated during replay in Serialise_CreateStateObject.
+  // Kept alive by stealing from the serialiser (preventing Deserialise from freeing it).
+  D3D12_STATE_OBJECT_DESC origDescriptor = {};
 
   Threading::JobSystem::Job *deferredJob = NULL;
 

@@ -1748,6 +1748,7 @@ protected:
   const Type *GetBoolType() { return m_BoolType; }
   const Type *GetInt32Type() { return m_Int32Type; }
   const Type *GetInt8Type() { return m_Int8Type; }
+  const Type *GetFloatType() { return m_FloatType; }
   const Type *GetPointerType(const Type *type, Type::PointerAddrSpace addrSpace);
 
   bytebuf m_Bytes;
@@ -1781,6 +1782,7 @@ protected:
   const Type *m_BoolType = NULL;
   const Type *m_Int32Type = NULL;
   const Type *m_Int8Type = NULL;
+  const Type *m_FloatType = NULL;
   const Type *m_MetaType = NULL;
   const Type *m_LabelType = NULL;
 

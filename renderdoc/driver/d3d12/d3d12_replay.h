@@ -603,11 +603,11 @@ private:
   NVD3D12Counters *m_pNVCounters = NULL;
 
   // raytrace debug
-  bool GetRayDispatchInvocations(uint32_t eventId, rdcarray<RayInvocationInfo> &invocations);
-  bool GetRayTraceCallData(uint32_t eventId, rdcarray<RayTraceCallInfo> &traceCalls);
+  bool GetRayHitData(uint32_t eventId, rdcarray<RayHitInfo> &invocations);
+  bool GetRayCallData(uint32_t eventId, rdcarray<RayCallInfo> &traceCalls);
 
   // internal helper for raytrace debug queries
-  bool InitPostRaytracingInvocations(uint32_t eventId,
-                                     rdcarray<RayInvocationInfo> *rayInvocationDatas,
-                                     rdcarray<RayTraceCallInfo> *rayTraceCallDatas);
+  bool InitPostRaytracingData(uint32_t eventId,
+                                     rdcarray<RayHitInfo> *rayHitDatas,
+                                     rdcarray<RayCallInfo> *rayCallDatas);
 };

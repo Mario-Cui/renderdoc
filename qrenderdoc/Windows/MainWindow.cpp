@@ -2955,6 +2955,16 @@ void MainWindow::on_action_Counter_Viewer_triggered()
     ui->toolWindowManager->addToolWindow(performanceCounterViewer, mainToolArea());
 }
 
+void MainWindow::on_action_Ray_Trace_Info_Viewer_triggered()
+{
+  QWidget *rayTraceInfoViewer = m_Ctx.GetRayTraceInfoViewer()->Widget();
+
+  if(ui->toolWindowManager->toolWindows().contains(rayTraceInfoViewer))
+    ToolWindowManager::raiseToolWindow(rayTraceInfoViewer);
+  else
+    ui->toolWindowManager->addToolWindow(rayTraceInfoViewer, mainToolArea());
+}
+
 void MainWindow::on_action_Resource_Inspector_triggered()
 {
   QWidget *resourceInspector = m_Ctx.GetResourceInspector()->Widget();

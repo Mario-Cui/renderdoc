@@ -163,6 +163,7 @@
     <addaction name="action_Mesh_Output"/>
     <addaction name="action_Pipeline_State"/>
     <addaction name="action_Python_Shell"/>
+    <addaction name="action_Ray_Trace_Info_Viewer"/>
     <addaction name="action_Resource_Inspector"/>
     <addaction name="action_Statistics_Viewer"/>
     <addaction name="action_Texture_Viewer"/>
@@ -441,6 +442,11 @@
   <action name="action_Resource_Inspector">
    <property name="text">
     <string>&amp;Resource Inspector</string>
+   </property>
+  </action>
+  <action name="action_Ray_Trace_Info_Viewer">
+   <property name="text">
+    <string>&amp;Ray Trace Info Viewer</string>
    </property>
   </action>
   <action name="action_Save_Capture_As">

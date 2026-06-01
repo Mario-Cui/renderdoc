@@ -2129,7 +2129,7 @@ DECLARE_REFLECTION_STRUCT(ShaderReflection);
 
 DOCUMENT(R"(Information about a single ray invocation: which shader stage handled it,
 which thread it belongs to, and the ray parameters at that point.)")
-struct RayInvocationInfo
+struct RayHitInfo
 {
   DOCUMENT("The shader stage that handled this invocation (0xFF = total count marker).");
   uint32_t shaderType;
@@ -2169,11 +2169,11 @@ struct RayInvocationInfo
   uint32_t hitKind;
 };
 
-DECLARE_REFLECTION_STRUCT(RayInvocationInfo);
+DECLARE_REFLECTION_STRUCT(RayHitInfo);
 
 DOCUMENT(R"(Information about a single TraceRay() call: the dispatch thread index,
 TraceRay arguments, and the ray origin/direction/tMin/tMax.)")
-struct RayTraceCallInfo
+struct RayCallInfo
 {
   DOCUMENT("The dispatch ray thread index X.");
   uint32_t dispatchX;
@@ -2209,4 +2209,4 @@ struct RayTraceCallInfo
   float tMax;
 };
 
-DECLARE_REFLECTION_STRUCT(RayTraceCallInfo);
+DECLARE_REFLECTION_STRUCT(RayCallInfo);

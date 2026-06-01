@@ -310,8 +310,8 @@ public:
   RenderOutputSubresource GetRenderOutputSubresource(ResourceId id);
   bool IsRenderOutput(ResourceId id) { return GetRenderOutputSubresource(id).mip != ~0U; }
   void FileChanged() {}
-  bool GetRayDispatchInvocations(uint32_t eventId, rdcarray<RayInvocationInfo> &invocations);
-  bool GetRayTraceCallData(uint32_t eventId, rdcarray<RayTraceCallInfo> &traceCalls);
+  bool GetRayHitData(uint32_t eventId, rdcarray<RayHitInfo> &invocations);
+  bool GetRayCallData(uint32_t eventId, rdcarray<RayCallInfo> &traceCalls);
 private:
   bool m_WARP;
   bool m_Proxy;

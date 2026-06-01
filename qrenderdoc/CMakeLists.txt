@@ -105,6 +105,8 @@ if(WIN32 AND ENABLE_QRENDERDOC)
         Windows/LogView.cpp
         Windows/MainWindow.cpp
         Windows/PerformanceCounterViewer.cpp
+        Windows/RayTraceInfoViewer.cpp
+        Windows/RayTraceInfoViewer.h
         Windows/PixelHistoryView.cpp
         Windows/PythonShell.cpp
         Windows/ResourceInspector.cpp
@@ -240,6 +242,7 @@ if(WIN32 AND ENABLE_QRENDERDOC)
         Windows/LogView.ui
         Windows/MainWindow.ui
         Windows/PerformanceCounterViewer.ui
+        Windows/RayTraceInfoViewer.ui
         Windows/PipelineState/D3D11PipelineStateViewer.ui
         Windows/PipelineState/D3D12PipelineStateViewer.ui
         Windows/PipelineState/GLPipelineStateViewer.ui
@@ -317,6 +320,7 @@ if(WIN32 AND ENABLE_QRENDERDOC)
         Windows/LogView.h
         Windows/MainWindow.h
         Windows/PerformanceCounterViewer.h
+        Windows/RayTraceInfoViewer.h
         Windows/PipelineState/D3D11PipelineStateViewer.h
         Windows/PipelineState/D3D12PipelineStateViewer.h
         Windows/PipelineState/GLPipelineStateViewer.h

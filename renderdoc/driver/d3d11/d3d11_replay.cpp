@@ -4489,7 +4489,7 @@ RDResult D3D11_ProcessStructured(RDCFile *rdc, SDFile &output)
 static StructuredProcessRegistration D3D11ProcessRegistration(RDCDriver::D3D11,
                                                               &D3D11_ProcessStructured);
 
-bool D3D11Replay::GetRayDispatchInvocations(uint32_t eventId, rdcarray<RayInvocationInfo> &invocations)
+bool D3D11Replay::GetRayHitData(uint32_t eventId, rdcarray<RayHitInfo> &invocations)
 { (void)eventId; invocations.clear(); return false; }
-bool D3D11Replay::GetRayTraceCallData(uint32_t eventId, rdcarray<RayTraceCallInfo> &traceCalls)
+bool D3D11Replay::GetRayCallData(uint32_t eventId, rdcarray<RayCallInfo> &traceCalls)
 { (void)eventId; traceCalls.clear(); return false; }

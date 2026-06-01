@@ -52,6 +52,7 @@
 #include "Windows/LogView.h"
 #include "Windows/MainWindow.h"
 #include "Windows/PerformanceCounterViewer.h"
+#include "Windows/RayTraceInfoViewer.h"
 #include "Windows/PipelineState/PipelineStateViewer.h"
 #include "Windows/PixelHistoryView.h"
 #include "Windows/PythonShell.h"
@@ -2384,6 +2385,18 @@ IPerformanceCounterViewer *CaptureContext::GetPerformanceCounterViewer()
   return m_PerformanceCounterViewer;
 }
 
+IRayTraceInfoViewer *CaptureContext::GetRayTraceInfoViewer()
+{
+  if(m_RayTraceInfoViewer)
+    return m_RayTraceInfoViewer;
+
+  m_RayTraceInfoViewer = new RayTraceInfoViewer(*this, m_MainWindow);
+  m_RayTraceInfoViewer->setObjectName(lit("rayTraceInfoViewer"));
+  setupDockWindow(m_RayTraceInfoViewer, true);
+
+  return m_RayTraceInfoViewer;
+}
+
 IStatisticsViewer *CaptureContext::GetStatisticsViewer()
 {
   if(m_StatisticsViewer)
@@ -2485,6 +2498,11 @@ void CaptureContext::ShowCommentView()
 void CaptureContext::ShowPerformanceCounterViewer()
 {
   m_MainWindow->showPerformanceCounterViewer();
+}
+
+void CaptureContext::ShowRayTraceInfoViewer()
+{
+  m_MainWindow->showRayTraceInfoViewer();
 }
 
 void CaptureContext::ShowStatisticsViewer()
@@ -2749,6 +2767,10 @@ QWidget *CaptureContext::CreateBuiltinWindow(const rdcstr &objectName)
   {
     return GetPerformanceCounterViewer()->Widget();
   }
+  else if(objectName == "rayTraceInfoViewer")
+  {
+    return GetRayTraceInfoViewer()->Widget();
+  }
 
   return NULL;
 }
@@ -2783,6 +2805,8 @@ void CaptureContext::BuiltinWindowClosed(QWidget *window)
     m_ResourceInspector = NULL;
   else if(m_PerformanceCounterViewer && m_PerformanceCounterViewer->Widget() == window)
     m_PerformanceCounterViewer = NULL;
+  else if(m_RayTraceInfoViewer && m_RayTraceInfoViewer->Widget() == window)
+    m_RayTraceInfoViewer = NULL;
   else
     qCritical() << "Unrecognised window being closed: " << window;
 }

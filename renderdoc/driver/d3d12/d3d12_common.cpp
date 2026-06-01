@@ -559,6 +559,10 @@ bool D3D12InitParams::IsSupportedVersion(uint64_t ver)
   if(ver == 0x17)
     return true;
 
+  // 0x20 -> 0x21 - OMM ASBuildData fields serialised conditionally by type
+  if(ver == 0x20)
+    return true;
+
   return false;
 }
 

@@ -2145,6 +2145,68 @@ void VulkanCreationInfo::Pipeline::Init(VulkanResourceManager *resourceMan,
   logicOpEnable = false;
   logicOp = VK_LOGIC_OP_NO_OP;
 
+  // ── Save ray tracing pipeline creation data for shader instrumentation ──
+
+  rtCreateFlags = flags;
+  rtMaxRecursionDepth = pCreateInfo->maxPipelineRayRecursionDepth;
+  rtPipelineLayoutId = compLayout;
+  rtPipelineLayout = pCreateInfo->layout;
+  rtGroupCount = pCreateInfo->groupCount;
+
+  // Save stages (pStages points to wrapped handles during Init)
+  rtStages.clear();
+  rtStages.reserve(pCreateInfo->stageCount);
+  rtStagesSPIRV.clear();
+  rtStagesSPIRV.reserve(pCreateInfo->stageCount);
+
+  for(uint32_t s = 0; s < pCreateInfo->stageCount; s++)
+  {
+    const VkPipelineShaderStageCreateInfo &srcStage = pCreateInfo->pStages[s];
+    VkPipelineShaderStageCreateInfo stageCopy;
+    stageCopy.sType = srcStage.sType;
+    stageCopy.pNext = srcStage.pNext;
+    stageCopy.flags = srcStage.flags;
+    stageCopy.stage = srcStage.stage;
+    stageCopy.module = srcStage.module;
+    stageCopy.pName = srcStage.pName;
+    stageCopy.pSpecializationInfo = srcStage.pSpecializationInfo;
+
+    rtStages.push_back(stageCopy);
+
+    // Save original SPIR-V from the shader module
+    if(srcStage.module != VK_NULL_HANDLE)
+    {
+      ResourceId modId = GetResID(srcStage.module);
+      auto modIt = info.m_ShaderModule.find(modId);
+      if(modIt != info.m_ShaderModule.end())
+        rtStagesSPIRV.push_back(modIt->second.spirv.GetSPIRV());
+      else
+        rtStagesSPIRV.push_back({});
+    }
+    else
+    {
+      rtStagesSPIRV.push_back({});
+    }
+  }
+
+  // Save groups
+  rtGroups.clear();
+  rtGroups.reserve(pCreateInfo->groupCount);
+  for(uint32_t g = 0; g < pCreateInfo->groupCount; g++)
+  {
+    const VkRayTracingShaderGroupCreateInfoKHR &srcGroup = pCreateInfo->pGroups[g];
+    VkRayTracingShaderGroupCreateInfoKHR groupCopy;
+    groupCopy.sType = srcGroup.sType;
+    groupCopy.pNext = srcGroup.pNext;
+    groupCopy.type = srcGroup.type;
+    groupCopy.generalShader = srcGroup.generalShader;
+    groupCopy.closestHitShader = srcGroup.closestHitShader;
+    groupCopy.anyHitShader = srcGroup.anyHitShader;
+    groupCopy.intersectionShader = srcGroup.intersectionShader;
+    groupCopy.pShaderGroupCaptureReplayHandle = srcGroup.pShaderGroupCaptureReplayHandle;
+    rtGroups.push_back(groupCopy);
+  }
+
   rdcarray<const DescSetLayout *> setLayoutInfos;
   for(ResourceId setLayout : descSetLayouts)
     setLayoutInfos.push_back(&info.m_DescSetLayout[setLayout]);

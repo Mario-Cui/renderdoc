@@ -24,6 +24,8 @@
 
 #include <algorithm>
 #include "../vk_core.h"
+#include "../vk_debug.h"
+#include "../vk_replay.h"
 
 VkIndirectPatchData WrappedVulkan::FetchIndirectData(VkIndirectPatchType type,
                                                      VkCommandBuffer commandBuffer,
@@ -5301,6 +5303,42 @@ bool WrappedVulkan::Serialise_vkCmdTraceRaysKHR(
         action.dispatchDimension[2] = depth;
 
         AddAction(action);
+
+        // Cache SBT raw data for raytrace debug (GetRayHitData/GetRayCallData)
+        // The SBT is already valid on GPU after replay; read its contents now
+        // and store them for later use by the raytrace debug instrumentation.
+        VulkanReplay *replay = GetReplay();
+        if(replay)
+        {
+          VulkanReplay::RayTraceSBTCache sbtCache;
+          sbtCache.raygenRegion = RaygenShaderBindingTable;
+          sbtCache.missRegion = MissShaderBindingTable;
+          sbtCache.hitRegion = HitShaderBindingTable;
+          sbtCache.callableRegion = CallableShaderBindingTable;
+
+          // Helper lambda to read SBT region from GPU
+          auto readSBTRegion = [this](VkStridedDeviceAddressRegionKHR region, bytebuf &out) -> bool {
+            if(region.size == 0 || region.deviceAddress == 0)
+            {
+              out.clear();
+              return true;
+            }
+            ResourceId bufId;
+            uint64_t offset = 0;
+            GetResIDFromAddr(region.deviceAddress, bufId, offset);
+            if(bufId == ResourceId())
+              return false;
+            GetDebugManager()->GetBufferData(bufId, offset, region.size, out);
+            return out.size() == region.size;
+          };
+
+          readSBTRegion(RaygenShaderBindingTable, sbtCache.raygen);
+          readSBTRegion(MissShaderBindingTable, sbtCache.miss);
+          readSBTRegion(HitShaderBindingTable, sbtCache.hit);
+          readSBTRegion(CallableShaderBindingTable, sbtCache.callable);
+
+          replay->SetRayTraceSBT(action.eventId, sbtCache);
+        }
       }
     }
   }

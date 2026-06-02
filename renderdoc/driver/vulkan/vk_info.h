@@ -478,6 +478,25 @@ struct VulkanCreationInfo
 
     // VkPipelineFragmentDensityMapLayeredCreateInfoVALVE
     uint32_t maxFragmentDensityMapLayers;
+
+    // ── Ray tracing pipeline data (for shader instrumentation) ──────────────
+
+    // Ray tracing pipeline stages: parallel to pStages from VkRayTracingPipelineCreateInfoKHR
+    rdcarray<VkPipelineShaderStageCreateInfo> rtStages;
+    // Original SPIR-V bytecode for each stage (from shader modules)
+    rdcarray<rdcarray<uint32_t>> rtStagesSPIRV;
+    // Ray tracing shader groups: parallel to pGroups from create info
+    rdcarray<VkRayTracingShaderGroupCreateInfoKHR> rtGroups;
+    // Number of shader groups
+    uint32_t rtGroupCount = 0;
+    // Pipeline create flags
+    uint64_t rtCreateFlags = 0;
+    // Max recursion depth
+    uint32_t rtMaxRecursionDepth = 1;
+    // Original pipeline layout resource ID (for recreating layouts)
+    ResourceId rtPipelineLayoutId;
+    // The actual pipeline layout handle (unwrapped)
+    VkPipelineLayout rtPipelineLayout = VK_NULL_HANDLE;
   };
   std::unordered_map<ResourceId, Pipeline> m_Pipeline;
 

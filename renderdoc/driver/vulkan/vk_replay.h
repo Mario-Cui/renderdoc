@@ -506,6 +506,23 @@ public:
   bool DepthCubeSupported() { return m_TexRender.DepthCubesSupported; }
   bool GetRayHitData(uint32_t eventId, rdcarray<RayHitInfo> &invocations);
   bool GetRayCallData(uint32_t eventId, rdcarray<RayCallInfo> &traceCalls);
+
+  // Cached SBT raw data for ray tracing dispatch events.
+  // Populated during serialisation, consumed by GetRayHitData/GetRayCallData.
+  struct RayTraceSBTCache
+  {
+    bytebuf raygen;
+    bytebuf miss;
+    bytebuf hit;
+    bytebuf callable;
+    VkStridedDeviceAddressRegionKHR raygenRegion = {};
+    VkStridedDeviceAddressRegionKHR missRegion = {};
+    VkStridedDeviceAddressRegionKHR hitRegion = {};
+    VkStridedDeviceAddressRegionKHR callableRegion = {};
+  };
+  void SetRayTraceSBT(uint32_t eventId, const RayTraceSBTCache &sbt);
+  const RayTraceSBTCache *GetRayTraceSBT(uint32_t eventId) const;
+
 private:
   bool FetchShaderFeedback(uint32_t eventId);
   void ClearFeedbackCache();
@@ -930,4 +947,7 @@ private:
                                const VkPerformanceCounterResultKHR &khrResult,
                                VkPerformanceCounterUnitKHR khrUnit,
                                VkPerformanceCounterStorageKHR khrStorage);
+
+  // SBT info for ray tracing events, populated during serialisation
+  std::map<uint32_t, RayTraceSBTCache> m_RayTraceSBTCache;
 };

@@ -50,3 +50,5 @@ plugins-*/
 __pycache__
 /build_test
 /.claude
+/.idea
+/cmake-build-debug-visual-studio

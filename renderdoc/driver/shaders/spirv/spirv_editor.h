@@ -120,6 +120,15 @@ public:
     rdcpair<Id, Id> ret = AddBuiltinInputLoad(ops, stage, builtin, type);
     if(ret.second != rdcspv::Id())
       addedGlobals.push_back(ret.second);
+    else
+    {
+      // Variable already existed (reused from a previous entry point).
+      // Add it to this entry point's interface too, if not already present
+      // (dedup is handled by AddEntryGlobals).
+      auto it = builtinInputs.find(builtin);
+      if(it != builtinInputs.end() && it->second.variable != rdcspv::Id())
+        addedGlobals.push_back(it->second.variable);
+    }
     return ret.first;
   }
 

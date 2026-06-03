@@ -509,6 +509,7 @@ public:
 
   // Cached SBT raw data for ray tracing dispatch events.
   // Populated during serialisation, consumed by GetRayHitData/GetRayCallData.
+  // Indexed by eventId after rebasing in InsertActionsAndRefreshIDs.
   struct RayTraceSBTCache
   {
     bytebuf raygen;

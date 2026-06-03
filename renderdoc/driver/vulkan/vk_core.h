@@ -879,6 +879,20 @@ private:
       rdcarray<rdcpair<VkDeviceAddress, uint64_t>> copyOffsets;
     };
     rdcarray<DeferredDescBufCopy> descBufDeferredCopies;
+
+    // SBT data cached during loading, consumed in InsertActionsAndRefreshIDs.
+    struct SBTData
+    {
+      bytebuf raygen;
+      bytebuf miss;
+      bytebuf hit;
+      bytebuf callable;
+      VkStridedDeviceAddressRegionKHR raygenRegion = {};
+      VkStridedDeviceAddressRegionKHR missRegion = {};
+      VkStridedDeviceAddressRegionKHR hitRegion = {};
+      VkStridedDeviceAddressRegionKHR callableRegion = {};
+    };
+    rdcarray<SBTData> raytraceSBTs;
   };
 
   uint64_t m_FakePushSetID = 0;

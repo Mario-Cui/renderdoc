@@ -25,6 +25,7 @@
 #include <algorithm>
 #include "../vk_core.h"
 #include "../vk_debug.h"
+#include "../vk_replay.h"
 #include "core/settings.h"
 
 RDOC_EXTERN_CONFIG(bool, Vulkan_Debug_VerboseCommandRecording);
@@ -652,6 +653,28 @@ void WrappedVulkan::InsertActionsAndRefreshIDs(BakedCmdBufferInfo &cmdBufInfo)
 
     n.action.eventId += m_RootEventID;
     n.action.actionId += m_RootActionID;
+
+    // Cache SBT data with the correct global eventId for GetRayHitData/GetRayCallData.
+    // The SBT data was stored in cmdBufInfo.raytraceSBTs during loading in order of actions.
+    if((n.action.flags & ActionFlags::DispatchRay) && !cmdBufInfo.raytraceSBTs.empty())
+    {
+      VulkanReplay *replay = GetReplay();
+      if(replay)
+      {
+        BakedCmdBufferInfo::SBTData &sbtData = cmdBufInfo.raytraceSBTs[0];
+        VulkanReplay::RayTraceSBTCache sbtCache;
+        sbtCache.raygen = std::move(sbtData.raygen);
+        sbtCache.miss = std::move(sbtData.miss);
+        sbtCache.hit = std::move(sbtData.hit);
+        sbtCache.callable = std::move(sbtData.callable);
+        sbtCache.raygenRegion = sbtData.raygenRegion;
+        sbtCache.missRegion = sbtData.missRegion;
+        sbtCache.hitRegion = sbtData.hitRegion;
+        sbtCache.callableRegion = sbtData.callableRegion;
+        replay->SetRayTraceSBT(n.action.eventId, sbtCache);
+        cmdBufInfo.raytraceSBTs.erase(0);
+      }
+    }
 
     if(n.indirectPatch.type == VkIndirectPatchType::DispatchIndirect)
     {

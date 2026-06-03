@@ -156,7 +156,8 @@ struct SBTHandles
 void PopulateSBTFromCache(const VulkanReplay::RayTraceSBTCache &cache, SBTHandles &outSBTs);
 
 void PatchSBTData(SBTHandles &sbtData, const bytebuf &newHandles, uint32_t groupCount,
-                  uint32_t handleSize);
+                  uint32_t handleSize, const rdcarray<VkRayTracingShaderGroupCreateInfoKHR> &rtGroups,
+                  const rdcarray<VkPipelineShaderStageCreateInfo> &rtStages);
 
 bool UploadSBTs(VkDevice device, SBTHandles &sbtData, VkInstance instance,
                 VkPhysicalDevice physicalDevice);
@@ -316,7 +317,8 @@ bool VulkanReplay::GetRayHitData(uint32_t eventId, rdcarray<RayHitInfo> &invocat
 
   SBTHandles countSBTs;
   PopulateSBTFromCache(*sbtCache, countSBTs);
-  PatchSBTData(countSBTs, countHandles, pipeInfo.rtGroupCount, handleSize);
+  PatchSBTData(countSBTs, countHandles, pipeInfo.rtGroupCount, handleSize, pipeInfo.rtGroups,
+               pipeInfo.rtStages);
   if(!UploadSBTs(wrappedDevice, countSBTs, vk->GetInstance(), physicalDevice))
   {
     countSBTs.Cleanup(wrappedDevice);
@@ -394,7 +396,8 @@ bool VulkanReplay::GetRayHitData(uint32_t eventId, rdcarray<RayHitInfo> &invocat
 
   SBTHandles storeSBTs;
   PopulateSBTFromCache(*sbtCache, storeSBTs);
-  PatchSBTData(storeSBTs, storeHandles, pipeInfo.rtGroupCount, handleSize);
+  PatchSBTData(storeSBTs, storeHandles, pipeInfo.rtGroupCount, handleSize, pipeInfo.rtGroups,
+               pipeInfo.rtStages);
   if(!UploadSBTs(wrappedDevice, storeSBTs, vk->GetInstance(), physicalDevice))
   {
     countSBTs.Cleanup(wrappedDevice);
@@ -460,7 +463,15 @@ bool VulkanReplay::GetRayHitData(uint32_t eventId, rdcarray<RayHitInfo> &invocat
     const RayHitInfo &r = records[i];
     RayHitInfo info;
     info.shaderType = r.shaderType;
+    if(i == 0)
+    {
+      info.shaderType = 0xFF;
+    }
     info.dispatchX = r.dispatchX;
+    if(i == 0)
+    {
+      info.dispatchX = r.shaderType;
+    }
     info.dispatchY = r.dispatchY;
     info.dispatchZ = r.dispatchZ;
     info.originX = r.originX;
@@ -638,7 +649,8 @@ bool VulkanReplay::GetRayCallData(uint32_t eventId, rdcarray<RayCallInfo> &trace
 
   SBTHandles countSBTs;
   PopulateSBTFromCache(*sbtCache, countSBTs);
-  PatchSBTData(countSBTs, countHandles, pipeInfo.rtGroupCount, handleSize);
+  PatchSBTData(countSBTs, countHandles, pipeInfo.rtGroupCount, handleSize, pipeInfo.rtGroups,
+               pipeInfo.rtStages);
   if(!UploadSBTs(wrappedDevice, countSBTs, vk->GetInstance(), physicalDevice))
   {
     countSBTs.Cleanup(wrappedDevice);
@@ -719,7 +731,8 @@ bool VulkanReplay::GetRayCallData(uint32_t eventId, rdcarray<RayCallInfo> &trace
 
   SBTHandles storeSBTs;
   PopulateSBTFromCache(*sbtCache, storeSBTs);
-  PatchSBTData(storeSBTs, storeHandles, pipeInfo.rtGroupCount, handleSize);
+  PatchSBTData(storeSBTs, storeHandles, pipeInfo.rtGroupCount, handleSize, pipeInfo.rtGroups,
+               pipeInfo.rtStages);
   if(!UploadSBTs(wrappedDevice, storeSBTs, vk->GetInstance(), physicalDevice))
   {
     countSBTs.Cleanup(wrappedDevice);
@@ -794,6 +807,10 @@ bool VulkanReplay::GetRayCallData(uint32_t eventId, rdcarray<RayCallInfo> &trace
     info.dispatchY = r.dispatchY;
     info.dispatchZ = r.dispatchZ;
     info.maskAndShderType = r.maskAndShderType;
+    if(i == 0)
+    {
+      info.maskAndShderType |= 0xFF00;
+    }
     info.flags = r.flags;
     info.hitGroupIndex = r.hitGroupIndex;
     info.hitGroupMul = r.hitGroupMul;
@@ -1219,7 +1236,8 @@ bool PatchRayCallCountModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> 
 
       // --- Atomic index: AtomicAdd(buf[0], 1) ---------------------------------
       rdcspv::Id accessChainRes = editor.MakeId();
-      ops.add(rdcspv::OpAccessChain(ssboPtrType, accessChainRes, outputBufVar, {constZero, constZero}));
+      ops.add(
+          rdcspv::OpAccessChain(ssboPtrType, accessChainRes, outputBufVar, {constZero, constZero}));
       rdcspv::Id atomicRes = editor.MakeId();
       ops.add(rdcspv::OpAtomicIAdd(uint32Type, atomicRes, accessChainRes, scopeDevice,
                                    semanticsRelaxed, constOne));
@@ -1348,7 +1366,8 @@ bool PatchRayCallStoreModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> 
 
       // --- Atomic index: bufIndex = AtomicAdd(buf[0], 1) + 1 ------------------
       rdcspv::Id accessChainRes = editor.MakeId();
-      ops.add(rdcspv::OpAccessChain(ssboUintPtr, accessChainRes, outputBufVar, {constZero, constZero}));
+      ops.add(
+          rdcspv::OpAccessChain(ssboUintPtr, accessChainRes, outputBufVar, {constZero, constZero}));
       rdcspv::Id atomicRes = editor.MakeId();
       ops.add(rdcspv::OpAtomicIAdd(uint32Type, atomicRes, accessChainRes, scopeDevice,
                                    semanticsRelaxed, constOne));
@@ -1377,8 +1396,8 @@ bool PatchRayCallStoreModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> 
       };
 
       // --- DispatchRaysIndex (LaunchIdKHR) ----------------------------------
-      rdcpair<rdcspv::Id, rdcspv::Id> launchIdPair = editor.AddBuiltinInputLoad(ops, ShaderStage::RayGen,
-                                                       rdcspv::BuiltIn::LaunchIdKHR, vec3UintType);
+      rdcpair<rdcspv::Id, rdcspv::Id> launchIdPair = editor.AddBuiltinInputLoad(
+          ops, ShaderStage::RayGen, rdcspv::BuiltIn::LaunchIdKHR, vec3UintType);
       rdcspv::Id launchId = launchIdPair.first;
       rdcspv::Id dispatchX = editor.MakeId();
       ops.add(rdcspv::OpCompositeExtract(uint32Type, dispatchX, launchId, {0}));
@@ -1510,18 +1529,58 @@ static void PatchSBTRegion(bytebuf &sbtData, VkStridedDeviceAddressRegionKHR reg
 }
 
 void PatchSBTData(SBTHandles &sbtData, const bytebuf &newHandles, uint32_t groupCount,
-                  uint32_t handleSize)
+                  uint32_t handleSize, const rdcarray<VkRayTracingShaderGroupCreateInfoKHR> &rtGroups,
+                  const rdcarray<VkPipelineShaderStageCreateInfo> &rtStages)
 {
-  uint32_t raygenGroupIdx = 0;
-  uint32_t missGroupIdx = 1;
-  uint32_t hitGroupIdx = 2;
-  // callable not used
+  // Determine group indices dynamically from rtGroups + rtStages.
+  uint32_t raygenGroupIdx = ~0U;
+  uint32_t missGroupIdx = ~0U;
+  rdcarray<uint32_t> hitGroupIndices;
+
+  for(uint32_t g = 0; g < (uint32_t)rtGroups.size() && g < groupCount; g++)
+  {
+    if(rtGroups[g].type == VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR)
+    {
+      uint32_t shaderIdx = rtGroups[g].generalShader;
+      if(shaderIdx < (uint32_t)rtStages.size())
+      {
+        VkShaderStageFlagBits stage = rtStages[shaderIdx].stage;
+        if(stage == VK_SHADER_STAGE_RAYGEN_BIT_KHR)
+          raygenGroupIdx = g;
+        else if(stage == VK_SHADER_STAGE_MISS_BIT_KHR)
+          missGroupIdx = g;
+      }
+    }
+    else
+    {
+      // TRIANGLES_HIT_GROUP_KHR or PROCEDURAL_HIT_GROUP_KHR
+      hitGroupIndices.push_back(g);
+    }
+  }
+
+  // Default fallback: assume sequential layout 0=raygen, 1=miss, 2+=hit
+  if(raygenGroupIdx == ~0U)
+    raygenGroupIdx = 0;
+  if(missGroupIdx == ~0U)
+    missGroupIdx = 1;
+  if(hitGroupIndices.empty())
+  {
+    // Assume all remaining groups after raygen/miss are hit groups
+    uint32_t skip = RDCMAX(raygenGroupIdx, missGroupIdx) + 1;
+    for(uint32_t g = skip; g < groupCount; g++)
+      hitGroupIndices.push_back(g);
+  }
 
   PatchSBTRegion(sbtData.raygenSBT, sbtData.raygenRegion, newHandles, groupCount, handleSize,
                  raygenGroupIdx);
   PatchSBTRegion(sbtData.missSBT, sbtData.missRegion, newHandles, groupCount, handleSize,
                  missGroupIdx);
-  PatchSBTRegion(sbtData.hitSBT, sbtData.hitRegion, newHandles, groupCount, handleSize, hitGroupIdx);
+
+  // Patch all hit group entries in one call. The hit region's entries are indexed
+  // starting from the first hit group index, with consecutive group indices.
+  PatchSBTRegion(sbtData.hitSBT, sbtData.hitRegion, newHandles, groupCount, handleSize,
+                 hitGroupIndices.empty() ? 2 : hitGroupIndices[0]);
+
   PatchSBTRegion(sbtData.callableSBT, sbtData.callableRegion, newHandles, groupCount, handleSize, 0);
 }
 

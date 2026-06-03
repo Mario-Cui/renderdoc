@@ -5198,17 +5198,16 @@ bool WrappedVulkan::Serialise_vkCmdTraceRaysKHR(
 
         AddAction(action);
 
-        // Cache SBT raw data for raytrace debug (GetRayHitData/GetRayCallData)
-        // The SBT is already valid on GPU after replay; read its contents now
-        // and store them for later use by the raytrace debug instrumentation.
+        // Store SBT raw data in the command buffer's baked info for later caching
+        // in InsertActionsAndRefreshIDs with the correct global eventId.
         VulkanReplay *replay = GetReplay();
         if(replay)
         {
-          VulkanReplay::RayTraceSBTCache sbtCache;
-          sbtCache.raygenRegion = RaygenShaderBindingTable;
-          sbtCache.missRegion = MissShaderBindingTable;
-          sbtCache.hitRegion = HitShaderBindingTable;
-          sbtCache.callableRegion = CallableShaderBindingTable;
+          BakedCmdBufferInfo::SBTData sbtData;
+          sbtData.raygenRegion = RaygenShaderBindingTable;
+          sbtData.missRegion = MissShaderBindingTable;
+          sbtData.hitRegion = HitShaderBindingTable;
+          sbtData.callableRegion = CallableShaderBindingTable;
 
           // Helper lambda to read SBT region from GPU
           auto readSBTRegion = [this](VkStridedDeviceAddressRegionKHR region, bytebuf &out) -> bool {
@@ -5226,12 +5225,12 @@ bool WrappedVulkan::Serialise_vkCmdTraceRaysKHR(
             return out.size() == region.size;
           };
 
-          readSBTRegion(RaygenShaderBindingTable, sbtCache.raygen);
-          readSBTRegion(MissShaderBindingTable, sbtCache.miss);
-          readSBTRegion(HitShaderBindingTable, sbtCache.hit);
-          readSBTRegion(CallableShaderBindingTable, sbtCache.callable);
+          readSBTRegion(RaygenShaderBindingTable, sbtData.raygen);
+          readSBTRegion(MissShaderBindingTable, sbtData.miss);
+          readSBTRegion(HitShaderBindingTable, sbtData.hit);
+          readSBTRegion(CallableShaderBindingTable, sbtData.callable);
 
-          replay->SetRayTraceSBT(action.eventId, sbtCache);
+          m_BakedCmdBufferInfo[m_LastCmdBufferID].raytraceSBTs.push_back(sbtData);
         }
       }
     }

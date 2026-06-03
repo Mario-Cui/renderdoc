@@ -2364,17 +2364,12 @@ void ReplayController::FetchPipelineState(uint32_t eventId)
 bool ReplayController::GetRayHitData(uint32_t eventId,
                                                   rdcarray<RayHitInfo> &invocations)
 {
-  auto it = m_EventRemap.find(eventId);
-  if(it != m_EventRemap.end())
-    eventId = it->second;
   return m_pDevice->GetRayHitData(eventId, invocations);
 }
 
 bool ReplayController::GetRayCallData(uint32_t eventId,
                                             rdcarray<RayCallInfo> &traceCalls)
 {
-  auto it = m_EventRemap.find(eventId);
-  if(it != m_EventRemap.end())
-    eventId = it->second;
+  
   return m_pDevice->GetRayCallData(eventId, traceCalls);
 }

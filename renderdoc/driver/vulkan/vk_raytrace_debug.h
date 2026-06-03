@@ -27,7 +27,7 @@
 #include "vk_replay.h"
 
 // Binding used for the debug output StorageBuffer within its descriptor set.
-enum { RAY_DEBUG_BINDING = 0 };
+enum { RAY_DEBUG_BINDING = 100 };
 
 // Declared in vk_replay.h as VulkanReplay member functions.
 // Implemented here in vk_raytrace_debug.cpp.

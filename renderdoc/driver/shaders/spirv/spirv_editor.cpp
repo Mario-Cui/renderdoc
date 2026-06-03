@@ -463,8 +463,12 @@ void Editor::AddEntryGlobals(Id entry, const rdcarray<Id> &newGlobals)
     // this copies into the helper struct
     rdcspv::OpEntryPoint e(it);
 
-    // add our IDs
-    e.iface.append(newGlobals);
+    // add our IDs, skipping any already in the existing interface
+    for(Id id : newGlobals)
+    {
+      if(!e.iface.contains(id))
+        e.iface.push_back(id);
+    }
 
     // erase the old one
     Remove(it);
@@ -546,7 +550,10 @@ rdcpair<Id, Id> Editor::AddBuiltinInputLoad(OperationList &ops, ShaderStage stag
 
     builtinInputs[builtin] = {var, ptrType, {}};
 
-    return {ops.add(OpLoad(type, MakeId(), var)), var};
+    // Manual 4-word OpLoad (no MemoryAccess word) to avoid driver compiler issues
+    rdcarray<uint32_t> loadWords = {type.value(), MakeId().value(), var.value()};
+    Id loaded = ops.add(rdcspv::Operation(rdcspv::Op::Load, loadWords));
+    return {loaded, var};
   }
 
   Id varType = dataTypes[data.type].InnerType();
@@ -555,7 +562,9 @@ rdcpair<Id, Id> Editor::AddBuiltinInputLoad(OperationList &ops, ShaderStage stag
 
   if(data.chain.empty())
   {
-    ret = ops.add(OpLoad(varType, MakeId(), data.variable));
+    // Manual 4-word OpLoad (no MemoryAccess word)
+    rdcarray<uint32_t> loadWords = {varType.value(), MakeId().value(), data.variable.value()};
+    ret = ops.add(rdcspv::Operation(rdcspv::Op::Load, loadWords));
   }
   else
   {
@@ -564,7 +573,9 @@ rdcpair<Id, Id> Editor::AddBuiltinInputLoad(OperationList &ops, ShaderStage stag
       chain.push_back(AddConstantImmediate<uint32_t>(accessIdx));
     Id subElement = ops.add(OpAccessChain(ptrType, MakeId(), data.variable, chain));
 
-    ret = ops.add(rdcspv::OpLoad(varType, MakeId(), subElement));
+    // Manual 4-word OpLoad (no MemoryAccess word)
+    rdcarray<uint32_t> loadWords = {varType.value(), MakeId().value(), subElement.value()};
+    ret = ops.add(rdcspv::Operation(rdcspv::Op::Load, loadWords));
   }
 
   if(varType != type)

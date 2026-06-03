@@ -73,9 +73,9 @@ bool PatchRayHitCountModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> &
 bool PatchRayHitStoreModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> &entryFuncs,
                             rdcspv::Id outputBufVar, rdcspv::Id uint32Type, rdcspv::Id floatType,
                             VkShaderStageFlagBits shaderStage);
-bool PatchRayCallCountModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> &funcs,
+bool PatchRayCallCountModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> &entryFuncs,
                              rdcspv::Id outputBufVar, rdcspv::Id uint32Type);
-bool PatchRayCallStoreModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> &funcs,
+bool PatchRayCallStoreModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> &entryFuncs,
                              rdcspv::Id outputBufVar, rdcspv::Id uint32Type, rdcspv::Id floatType,
                              VkShaderStageFlagBits shaderStage);
 
@@ -430,10 +430,10 @@ bool VulkanReplay::GetRayHitData(uint32_t eventId, rdcarray<RayHitInfo> &invocat
   uint32_t totalCount = 0;
   if(countResult.size() >= sizeof(uint32_t))
     totalCount = *(const uint32_t *)countResult.data();
-  if(totalCount == 0 || totalCount > 1024 * 1024)
+  if(totalCount == 0)
     totalCount = 1;
 
-  VkDeviceSize storeBufSize = totalCount * sizeof(RayHitInfo);
+  VkDeviceSize storeBufSize = (VkDeviceSize)(totalCount + 1) * sizeof(RayHitInfo);
   RayTraceResources storeResources = {};
   bytebuf storeResult;
 
@@ -455,7 +455,7 @@ bool VulkanReplay::GetRayHitData(uint32_t eventId, rdcarray<RayHitInfo> &invocat
   invocations.reserve(resultCount);
 
   const RayHitInfo *records = (const RayHitInfo *)storeResult.data();
-  for(uint32_t i = 1; i < resultCount; i++)
+  for(uint32_t i = 0; i < resultCount; i++)
   {
     const RayHitInfo &r = records[i];
     RayHitInfo info;
@@ -552,23 +552,28 @@ bool VulkanReplay::GetRayCallData(uint32_t eventId, rdcarray<RayCallInfo> &trace
       FileIO::WriteAll(fn, countSPIRVs[idx]);
     }
 
-    rdcspv::Editor editor(countSPIRVs[idx]);
-    editor.Prepare();
-
-    rdcspv::Id uint32Type = editor.DeclareType(rdcspv::scalar<uint32_t>());
-    rdcspv::Id outputVar = AddRayDebugOutputBuffer(editor, debugSetIndex, RAY_DEBUG_BINDING);
-
-    // For RayCall: instrument ALL functions (helpers may call TraceRay)
-    rdcarray<rdcspv::Id> allFuncs;
-    for(rdcspv::Iter it = editor.Begin(rdcspv::Section::Functions); it; it++)
     {
-      rdcspv::OpDecoder dec(it);
-      if(dec.op == rdcspv::Op::Function)
-        allFuncs.push_back(dec.result);
+      rdcspv::Editor editor(countSPIRVs[idx]);
+      editor.Prepare();
+
+      rdcspv::Id uint32Type = editor.DeclareType(rdcspv::scalar<uint32_t>());
+      rdcspv::Id outputVar = AddRayDebugOutputBuffer(editor, debugSetIndex, RAY_DEBUG_BINDING);
+
+      // Find the entry function(s) matching this stage (for AddEntryGlobals).
+      rdcarray<rdcspv::Id> entryFuncs = FindMatchingEntryFunctions(editor, stage.pName);
+
+      if(!entryFuncs.empty())
+      {
+        if(PatchRayCallCountModule(editor, entryFuncs, outputVar, uint32Type))
+          stagePatched[idx] = true;
+      }
     }
 
-    if(PatchRayCallCountModule(editor, allFuncs, outputVar, uint32Type))
-      stagePatched[idx] = true;
+    if(!Vulkan_Debug_RayTraceDumpDirPath().empty())
+    {
+      rdcstr fn = Vulkan_Debug_RayTraceDumpDirPath() + "/rayhit_count_stage" + ToStr(idx) + ".spv";
+      FileIO::WriteAll(fn, countSPIRVs[idx]);
+    }
   }
 
   bool anyPatched = false;
@@ -586,9 +591,22 @@ bool VulkanReplay::GetRayCallData(uint32_t eventId, rdcarray<RayCallInfo> &trace
     return false;
   }
 
+  // Only pass stages that were actually patched
+  rdcarray<uint32_t> patchedCallStages;
+  for(uint32_t idx : callStageIndices)
+  {
+    if(stagePatched[idx])
+      patchedCallStages.push_back(idx);
+  }
+  if(patchedCallStages.empty())
+  {
+    traceCalls.clear();
+    return false;
+  }
+
   PatchedPipelineResult countPipeRes =
       CreatePatchedPipeline(vk, vk->GetResourceManager(), vk->m_CreationInfo, pipeInfo, countSPIRVs,
-                            callStageIndices, debugSetIndex);
+                            patchedCallStages, debugSetIndex);
 
   if(countPipeRes.pipeline == VK_NULL_HANDLE)
   {
@@ -660,27 +678,33 @@ bool VulkanReplay::GetRayCallData(uint32_t eventId, rdcarray<RayCallInfo> &trace
       FileIO::WriteAll(fn, storeSPIRVs[idx]);
     }
 
-    rdcspv::Editor editor(storeSPIRVs[idx]);
-    editor.Prepare();
-
-    rdcspv::Id uint32Type = editor.DeclareType(rdcspv::scalar<uint32_t>());
-    rdcspv::Id floatType = editor.DeclareType(rdcspv::scalar<float>());
-    rdcspv::Id outputVar = AddRayDebugOutputBuffer(editor, debugSetIndex, RAY_DEBUG_BINDING);
-
-    rdcarray<rdcspv::Id> allFuncs;
-    for(rdcspv::Iter it = editor.Begin(rdcspv::Section::Functions); it; it++)
     {
-      rdcspv::OpDecoder dec(it);
-      if(dec.op == rdcspv::Op::Function)
-        allFuncs.push_back(dec.result);
+      rdcspv::Editor editor(storeSPIRVs[idx]);
+      editor.Prepare();
+
+      rdcspv::Id uint32Type = editor.DeclareType(rdcspv::scalar<uint32_t>());
+      rdcspv::Id floatType = editor.DeclareType(rdcspv::scalar<float>());
+      rdcspv::Id outputVar = AddRayDebugOutputBuffer(editor, debugSetIndex, RAY_DEBUG_BINDING);
+
+      // Find the entry function(s) matching this stage (for AddEntryGlobals).
+      rdcarray<rdcspv::Id> entryFuncs = FindMatchingEntryFunctions(editor, stage.pName);
+
+      if(!entryFuncs.empty())
+      {
+        PatchRayCallStoreModule(editor, entryFuncs, outputVar, uint32Type, floatType, stage.stage);
+      }
     }
 
-    PatchRayCallStoreModule(editor, allFuncs, outputVar, uint32Type, floatType, stage.stage);
+    if(!Vulkan_Debug_RayTraceDumpDirPath().empty())
+    {
+      rdcstr fn = Vulkan_Debug_RayTraceDumpDirPath() + "/rayhit_store_stage" + ToStr(idx) + ".spv";
+      FileIO::WriteAll(fn, storeSPIRVs[idx]);
+    }
   }
 
   PatchedPipelineResult storePipeRes =
       CreatePatchedPipeline(vk, vk->GetResourceManager(), vk->m_CreationInfo, pipeInfo, storeSPIRVs,
-                            callStageIndices, debugSetIndex);
+                            patchedCallStages, debugSetIndex);
 
   if(storePipeRes.pipeline == VK_NULL_HANDLE)
   {
@@ -737,10 +761,10 @@ bool VulkanReplay::GetRayCallData(uint32_t eventId, rdcarray<RayCallInfo> &trace
   uint32_t totalCount = 0;
   if(countResult.size() >= sizeof(uint32_t))
     totalCount = *(const uint32_t *)countResult.data();
-  if(totalCount == 0 || totalCount > 1024 * 1024)
+  if(totalCount == 0)
     totalCount = 1;
 
-  VkDeviceSize storeBufSize = totalCount * sizeof(RayCallInfo);
+  VkDeviceSize storeBufSize = (VkDeviceSize)(totalCount + 1) * sizeof(RayCallInfo);
   RayTraceResources storeResources = {};
   bytebuf storeResult;
 
@@ -762,7 +786,7 @@ bool VulkanReplay::GetRayCallData(uint32_t eventId, rdcarray<RayCallInfo> &trace
   traceCalls.reserve(resultCount);
 
   const RayCallInfo *records = (const RayCallInfo *)storeResult.data();
-  for(uint32_t i = 1; i < resultCount; i++)
+  for(uint32_t i = 0; i < resultCount; i++)
   {
     const RayCallInfo &r = records[i];
     RayCallInfo info;
@@ -882,37 +906,13 @@ bool PatchRayHitCountModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> &
 
   for(rdcspv::Id funcId : entryFuncs)
   {
-    // Search for the function in the function section instead of using GetID,
-    // which has stale idOffsets after type/variable additions.
-    rdcspv::Iter funcIter;
-    for(rdcspv::Iter fit = editor.Begin(rdcspv::Section::Functions); fit; fit++)
-    {
-      rdcspv::OpDecoder fdec(fit);
-      if(fdec.op == rdcspv::Op::Function && fdec.result == funcId)
-      {
-        funcIter = fit;
-        break;
-      }
-    }
-    if(!funcIter)
-      continue;
-
-    rdcspv::Iter insertPoint = funcIter;
-    insertPoint++;
-    for(rdcspv::OpDecoder d(insertPoint); d.op == rdcspv::Op::FunctionParameter;
-        insertPoint++, d.op = rdcspv::OpDecoder(insertPoint).op)
-    {
-    }
-
-    // skip past OpLabel - the first instruction in a function must be a label
-    {
-      rdcspv::OpDecoder labelCheck(insertPoint);
-      if(labelCheck.op == rdcspv::Op::Label)
-        insertPoint++;
-    }
-
     rdcspv::OperationList ops;
+    rdcarray<rdcspv::Id> addedGlobals;
 
+    // The debug output SSBO must be listed in the entry point interface
+    addedGlobals.push_back(outputBufVar);
+
+    // --- Atomic index: AtomicAdd(buf[0], 1) ---------------------------------
     rdcspv::Id accessChainRes = editor.MakeId();
     ops.add(rdcspv::OpAccessChain(ssboPtrType, accessChainRes, outputBufVar, {constZero, constZero}));
 
@@ -920,7 +920,39 @@ bool PatchRayHitCountModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> &
     ops.add(rdcspv::OpAtomicIAdd(uint32Type, atomicRes, accessChainRes, scopeDevice,
                                  semanticsRelaxed, constOne));
 
-    editor.AddOperations(insertPoint, ops);
+    // Compute insertPoint AFTER all Editor modifications
+    // Re-scan for the function by ID.
+    {
+      rdcspv::Iter funcIter;
+      for(rdcspv::Iter fit = editor.Begin(rdcspv::Section::Functions); fit; fit++)
+      {
+        rdcspv::OpDecoder fdec(fit);
+        if(fdec.op == rdcspv::Op::Function && fdec.result == funcId)
+        {
+          funcIter = fit;
+          break;
+        }
+      }
+      if(!funcIter)
+        continue;
+
+      rdcspv::Iter insertPoint = funcIter;
+      insertPoint++;
+      for(rdcspv::OpDecoder d(insertPoint); d.op == rdcspv::Op::FunctionParameter;
+          insertPoint++, d.op = rdcspv::OpDecoder(insertPoint).op)
+      {
+      }
+
+      // skip past OpLabel - the first instruction in a function must be a label
+      {
+        rdcspv::OpDecoder labelCheck(insertPoint);
+        if(labelCheck.op == rdcspv::Op::Label)
+          insertPoint++;
+      }
+
+      editor.AddOperations(insertPoint, ops);
+    }
+    editor.AddEntryGlobals(funcId, addedGlobals);
     patchedAny = true;
   }
 
@@ -939,8 +971,6 @@ bool PatchRayHitStoreModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> &
 
   rdcspv::Id ssboUintPtr =
       editor.DeclareType(rdcspv::Pointer(uint32Type, rdcspv::StorageClass::StorageBuffer));
-  rdcspv::Id ssboFloatPtr =
-      editor.DeclareType(rdcspv::Pointer(floatType, rdcspv::StorageClass::StorageBuffer));
 
   rdcspv::Id constZero = editor.AddConstantImmediate<uint32_t>(0);
   rdcspv::Id constOne = editor.AddConstantImmediate<uint32_t>(1);
@@ -950,43 +980,37 @@ bool PatchRayHitStoreModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> &
   uint32_t shaderTypeVal = ShaderStageToRayHitType(shaderStage);
   rdcspv::Id shaderTypeConst = editor.AddConstantImmediate<uint32_t>(shaderTypeVal);
 
-  rdcarray<rdcspv::Id> addedGlobals;
+  // All SSBO writes go through uint pointer (buffer is RuntimeArray<uint>).
+  // Float values are OpBitcast to uint before storing.
+  // Use a plain 3-word OpStore (no MemoryAccess word) to avoid driver compiler issues.
+  auto writeUint = [&](rdcspv::OperationList &ops, rdcspv::Id bufIndex, uint32_t fieldOffset,
+                       rdcspv::Id value) {
+    uint32_t wordOffset = fieldOffset / sizeof(uint32_t);
+    rdcspv::Id offConst = editor.AddConstantImmediate<uint32_t>(wordOffset);
+    rdcspv::Id arrayIdx = editor.MakeId();
+    ops.add(rdcspv::OpIAdd(uint32Type, arrayIdx, bufIndex, offConst));
+    rdcspv::Id destPtr = editor.MakeId();
+    ops.add(rdcspv::OpAccessChain(ssboUintPtr, destPtr, outputBufVar, {constZero, arrayIdx}));
+    // Manual 3-word OpStore (no MemoryAccess word)
+    rdcarray<uint32_t> storeWords = {destPtr.value(), value.value()};
+    ops.add(rdcspv::Operation(rdcspv::Op::Store, storeWords));
+  };
+  auto writeFloat = [&](rdcspv::OperationList &ops, rdcspv::Id bufIndex, uint32_t fieldOffset,
+                        rdcspv::Id value) {
+    rdcspv::Id intVal = editor.MakeId();
+    ops.add(rdcspv::OpBitcast(uint32Type, intVal, value));
+    writeUint(ops, bufIndex, fieldOffset, intVal);
+  };
 
+  rdcarray<rdcspv::Id> addedGlobals;
   bool patchedAny = false;
 
   for(rdcspv::Id funcId : entryFuncs)
   {
-    // Search for the function in the function section instead of using GetID,
-    // which has stale idOffsets after type/variable additions.
-    rdcspv::Iter funcIter;
-    for(rdcspv::Iter fit = editor.Begin(rdcspv::Section::Functions); fit; fit++)
-    {
-      rdcspv::OpDecoder fdec(fit);
-      if(fdec.op == rdcspv::Op::Function && fdec.result == funcId)
-      {
-        funcIter = fit;
-        break;
-      }
-    }
-    if(!funcIter)
-      continue;
-
-    rdcspv::Iter insertPoint = funcIter;
-    insertPoint++;
-    for(rdcspv::OpDecoder d(insertPoint); d.op == rdcspv::Op::FunctionParameter;
-        insertPoint++, d.op = rdcspv::OpDecoder(insertPoint).op)
-    {
-    }
-
-    // skip past OpLabel - the first instruction in a function must be a label
-    {
-      rdcspv::OpDecoder labelCheck(insertPoint);
-      if(labelCheck.op == rdcspv::Op::Label)
-        insertPoint++;
-    }
-
     rdcspv::OperationList ops;
     addedGlobals.clear();
+    // The debug output SSBO must be listed in the entry point interface
+    addedGlobals.push_back(outputBufVar);
 
     // --- Atomic index: bufIndex = AtomicAdd(buf[0], 1) + 1 -----------------
     rdcspv::Id accessChainRes = editor.MakeId();
@@ -998,119 +1022,129 @@ bool PatchRayHitStoreModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> &
 
     rdcspv::Id bufIndex = editor.MakeId();
     ops.add(rdcspv::OpIAdd(uint32Type, bufIndex, atomicRes, constOne));
+    // Each RayHitInfo is 18 uint32_t. Multiply bufIndex by 18 so that
+    // data starts at array element 18 (skipping the counter at element 0).
+    rdcspv::Id const18 = editor.AddConstantImmediate<uint32_t>(18);
+    rdcspv::Id recordBase = editor.MakeId();
+    ops.add(rdcspv::OpIMul(uint32Type, recordBase, bufIndex, const18));
 
-    auto writeUint = [&](uint32_t fieldOffset, rdcspv::Id value) {
-      uint32_t wordOffset = fieldOffset / sizeof(uint32_t);
-      rdcspv::Id offConst = editor.AddConstantImmediate<uint32_t>(wordOffset);
-      rdcspv::Id arrayIdx = editor.MakeId();
-      ops.add(rdcspv::OpIAdd(uint32Type, arrayIdx, bufIndex, offConst));
-      rdcspv::Id destPtr = editor.MakeId();
-      ops.add(rdcspv::OpAccessChain(ssboUintPtr, destPtr, outputBufVar, {constZero, arrayIdx}));
-      ops.add(rdcspv::OpStore(destPtr, value));
-    };
-    auto writeFloat = [&](uint32_t fieldOffset, rdcspv::Id value) {
-      uint32_t wordOffset = fieldOffset / sizeof(uint32_t);
-      rdcspv::Id offConst = editor.AddConstantImmediate<uint32_t>(wordOffset);
-      rdcspv::Id arrayIdx = editor.MakeId();
-      ops.add(rdcspv::OpIAdd(uint32Type, arrayIdx, bufIndex, offConst));
-      rdcspv::Id destPtr = editor.MakeId();
-      ops.add(rdcspv::OpAccessChain(ssboFloatPtr, destPtr, outputBufVar, {constZero, arrayIdx}));
-      ops.add(rdcspv::OpStore(destPtr, value));
-    };
+    // --- Write shaderType at field offset 0 ---------------------------------
+    writeUint(ops, recordBase, offsetof(RayHitInfo, shaderType), shaderTypeConst);
 
-    // --- Write shaderType ---------------------------------------------------
-    writeUint(offsetof(RayHitInfo, shaderType), shaderTypeConst);
-
-    // --- DispatchRaysIndex (LaunchIdKHR) ------------------------------------
+    // --- DispatchRaysIndex ----------------------------------------------------
     rdcspv::Id launchId = editor.AddBuiltinInputLoad(ops, addedGlobals, ShaderStage::RayGen,
                                                      rdcspv::BuiltIn::LaunchIdKHR, vec3UintType);
-
     rdcspv::Id dispatchX = editor.MakeId();
     ops.add(rdcspv::OpCompositeExtract(uint32Type, dispatchX, launchId, {0}));
+    writeUint(ops, recordBase, offsetof(RayHitInfo, dispatchX), dispatchX);
     rdcspv::Id dispatchY = editor.MakeId();
     ops.add(rdcspv::OpCompositeExtract(uint32Type, dispatchY, launchId, {1}));
+    writeUint(ops, recordBase, offsetof(RayHitInfo, dispatchY), dispatchY);
     rdcspv::Id dispatchZ = editor.MakeId();
     ops.add(rdcspv::OpCompositeExtract(uint32Type, dispatchZ, launchId, {2}));
+    writeUint(ops, recordBase, offsetof(RayHitInfo, dispatchZ), dispatchZ);
 
-    writeUint(offsetof(RayHitInfo, dispatchX), dispatchX);
-    writeUint(offsetof(RayHitInfo, dispatchY), dispatchY);
-    writeUint(offsetof(RayHitInfo, dispatchZ), dispatchZ);
-
-    // --- WorldRayOrigin -----------------------------------------------------
+    // --- WorldRayOrigin -------------------------------------------------------
     rdcspv::Id worldOrigin = editor.AddBuiltinInputLoad(
         ops, addedGlobals, ShaderStage::RayGen, rdcspv::BuiltIn::WorldRayOriginKHR, vec3FloatType);
-
     rdcspv::Id originX = editor.MakeId();
     ops.add(rdcspv::OpCompositeExtract(floatType, originX, worldOrigin, {0}));
+    writeFloat(ops, recordBase, offsetof(RayHitInfo, originX), originX);
     rdcspv::Id originY = editor.MakeId();
     ops.add(rdcspv::OpCompositeExtract(floatType, originY, worldOrigin, {1}));
+    writeFloat(ops, recordBase, offsetof(RayHitInfo, originY), originY);
     rdcspv::Id originZ = editor.MakeId();
     ops.add(rdcspv::OpCompositeExtract(floatType, originZ, worldOrigin, {2}));
+    writeFloat(ops, recordBase, offsetof(RayHitInfo, originZ), originZ);
 
-    writeFloat(offsetof(RayHitInfo, originX), originX);
-    writeFloat(offsetof(RayHitInfo, originY), originY);
-    writeFloat(offsetof(RayHitInfo, originZ), originZ);
-
-    // --- WorldRayDirection --------------------------------------------------
+    // --- WorldRayDirection ----------------------------------------------------
     rdcspv::Id worldDir = editor.AddBuiltinInputLoad(
         ops, addedGlobals, ShaderStage::RayGen, rdcspv::BuiltIn::WorldRayDirectionKHR, vec3FloatType);
-
     rdcspv::Id dirX = editor.MakeId();
     ops.add(rdcspv::OpCompositeExtract(floatType, dirX, worldDir, {0}));
+    writeFloat(ops, recordBase, offsetof(RayHitInfo, dirX), dirX);
     rdcspv::Id dirY = editor.MakeId();
     ops.add(rdcspv::OpCompositeExtract(floatType, dirY, worldDir, {1}));
+    writeFloat(ops, recordBase, offsetof(RayHitInfo, dirY), dirY);
     rdcspv::Id dirZ = editor.MakeId();
     ops.add(rdcspv::OpCompositeExtract(floatType, dirZ, worldDir, {2}));
+    writeFloat(ops, recordBase, offsetof(RayHitInfo, dirZ), dirZ);
 
-    writeFloat(offsetof(RayHitInfo, dirX), dirX);
-    writeFloat(offsetof(RayHitInfo, dirY), dirY);
-    writeFloat(offsetof(RayHitInfo, dirZ), dirZ);
-
-    // --- RayTmin ------------------------------------------------------------
+    // --- RayTmin --------------------------------------------------------------
     rdcspv::Id rayTmin = editor.AddBuiltinInputLoad(ops, addedGlobals, ShaderStage::RayGen,
                                                     rdcspv::BuiltIn::RayTminKHR, floatType);
-    writeFloat(offsetof(RayHitInfo, tMin), rayTmin);
+    writeFloat(ops, recordBase, offsetof(RayHitInfo, tMin), rayTmin);
 
-    // --- RayTmax (maps to D3D12 RayTCurrent) --------------------------------
+    // --- RayTmax (maps to D3D12 RayTCurrent) ---------------------------------
     rdcspv::Id rayTmax = editor.AddBuiltinInputLoad(ops, addedGlobals, ShaderStage::RayGen,
                                                     rdcspv::BuiltIn::RayTmaxKHR, floatType);
-    writeFloat(offsetof(RayHitInfo, tCurrent), rayTmax);
+    writeFloat(ops, recordBase, offsetof(RayHitInfo, tCurrent), rayTmax);
 
-    // --- IncomingRayFlags ---------------------------------------------------
+    // --- IncomingRayFlags -----------------------------------------------------
     rdcspv::Id rayFlags = editor.AddBuiltinInputLoad(
         ops, addedGlobals, ShaderStage::RayGen, rdcspv::BuiltIn::IncomingRayFlagsKHR, uint32Type);
-    writeUint(offsetof(RayHitInfo, flags), rayFlags);
+    writeUint(ops, recordBase, offsetof(RayHitInfo, flags), rayFlags);
 
-    // --- Hit-specific builtins: only available in AnyHit/ClosestHit ---------
+    // --- Hit-specific builtins (only for AnyHit/ClosestHit) -------------------
     bool isHit = (shaderStage == VK_SHADER_STAGE_ANY_HIT_BIT_KHR ||
                   shaderStage == VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR);
-
     if(isHit)
     {
-      rdcspv::Id instanceIdx = editor.AddBuiltinInputLoad(
-          ops, addedGlobals, ShaderStage::RayGen, rdcspv::BuiltIn::InstanceIndex, uint32Type);
-      writeUint(offsetof(RayHitInfo, instanceIndex), instanceIdx);
+      rdcspv::Id instanceIdx = editor.AddBuiltinInputLoad(ops, addedGlobals, ShaderStage::RayGen,
+                                                          rdcspv::BuiltIn::InstanceId, uint32Type);
+      writeUint(ops, recordBase, offsetof(RayHitInfo, instanceIndex), instanceIdx);
 
       rdcspv::Id instanceCustomIdx =
           editor.AddBuiltinInputLoad(ops, addedGlobals, ShaderStage::RayGen,
                                      rdcspv::BuiltIn::InstanceCustomIndexKHR, uint32Type);
-      writeUint(offsetof(RayHitInfo, instanceId), instanceCustomIdx);
+      writeUint(ops, recordBase, offsetof(RayHitInfo, instanceId), instanceCustomIdx);
 
       rdcspv::Id geometryIdx = editor.AddBuiltinInputLoad(
           ops, addedGlobals, ShaderStage::RayGen, rdcspv::BuiltIn::RayGeometryIndexKHR, uint32Type);
-      writeUint(offsetof(RayHitInfo, geometryIndex), geometryIdx);
+      writeUint(ops, recordBase, offsetof(RayHitInfo, geometryIndex), geometryIdx);
 
       rdcspv::Id primitiveIdx = editor.AddBuiltinInputLoad(
           ops, addedGlobals, ShaderStage::RayGen, rdcspv::BuiltIn::PrimitiveId, uint32Type);
-      writeUint(offsetof(RayHitInfo, primitiveIndex), primitiveIdx);
+      writeUint(ops, recordBase, offsetof(RayHitInfo, primitiveIndex), primitiveIdx);
 
       rdcspv::Id hitKind = editor.AddBuiltinInputLoad(ops, addedGlobals, ShaderStage::RayGen,
                                                       rdcspv::BuiltIn::HitKindKHR, uint32Type);
-      writeUint(offsetof(RayHitInfo, hitKind), hitKind);
+      writeUint(ops, recordBase, offsetof(RayHitInfo, hitKind), hitKind);
     }
-    // For Miss/Intersection: hit-specific fields remain 0 (buffer was cleared)
 
-    editor.AddOperations(insertPoint, ops);
+    // Compute insertPoint AFTER all Editor modifications (DeclareType,
+    // AddConstantImmediate, AddBuiltinInputLoad) so that Functions section
+    // shifts are accounted for. Re-scan for the function by ID.
+    {
+      rdcspv::Iter funcIter;
+      for(rdcspv::Iter fit = editor.Begin(rdcspv::Section::Functions); fit; fit++)
+      {
+        rdcspv::OpDecoder fdec(fit);
+        if(fdec.op == rdcspv::Op::Function && fdec.result == funcId)
+        {
+          funcIter = fit;
+          break;
+        }
+      }
+      if(!funcIter)
+        continue;
+
+      rdcspv::Iter insertPoint = funcIter;
+      insertPoint++;
+      for(rdcspv::OpDecoder d(insertPoint); d.op == rdcspv::Op::FunctionParameter;
+          insertPoint++, d.op = rdcspv::OpDecoder(insertPoint).op)
+      {
+      }
+
+      // skip past OpLabel - the first instruction in a function must be a label
+      {
+        rdcspv::OpDecoder labelCheck(insertPoint);
+        if(labelCheck.op == rdcspv::Op::Label)
+          insertPoint++;
+      }
+
+      editor.AddOperations(insertPoint, ops);
+    }
     editor.AddEntryGlobals(funcId, addedGlobals);
 
     patchedAny = true;
@@ -1123,10 +1157,10 @@ bool PatchRayHitStoreModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> &
 // Ray call instrumentation: search all functions for OpTraceRayKHR
 // ---------------------------------------------------------------------------
 
-bool PatchRayCallCountModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> &funcs,
+bool PatchRayCallCountModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> &entryFuncs,
                              rdcspv::Id outputBufVar, rdcspv::Id uint32Type)
 {
-  if(funcs.empty())
+  if(entryFuncs.empty())
     return false;
 
   rdcspv::Id scopeDevice = editor.AddConstantImmediate<uint32_t>(1);
@@ -1137,12 +1171,18 @@ bool PatchRayCallCountModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> 
   rdcspv::Id ssboPtrType =
       editor.DeclareType(rdcspv::Pointer(uint32Type, rdcspv::StorageClass::StorageBuffer));
 
+  // Ensure the debug output SSBO is in the entry point interface.
+  for(rdcspv::Id entryId : entryFuncs)
+  {
+    rdcarray<rdcspv::Id> globals = {outputBufVar};
+    editor.AddEntryGlobals(entryId, globals);
+  }
+
   bool patchedAny = false;
 
-  for(rdcspv::Id funcId : funcs)
+  for(rdcspv::Id funcId : entryFuncs)
   {
-    // Search for the function in the function section instead of using GetID,
-    // which has stale idOffsets after type/variable additions.
+    // Re-scan for the function by ID (offsets may have shifted).
     rdcspv::Iter funcIter;
     for(rdcspv::Iter fit = editor.Begin(rdcspv::Section::Functions); fit; fit++)
     {
@@ -1163,6 +1203,7 @@ bool PatchRayCallCountModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> 
     {
     }
 
+    // Collect all TraceRayKHR call sites.
     rdcarray<rdcspv::Iter> traceRaySites;
     for(rdcspv::Iter it = insertPoint; it; it++)
     {
@@ -1171,19 +1212,57 @@ bool PatchRayCallCountModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> 
         traceRaySites.push_back(it);
     }
 
-    for(rdcspv::Iter site : traceRaySites)
+    // Process sites in REVERSE order.
+    for(int32_t s = (int32_t)traceRaySites.size() - 1; s >= 0; s--)
     {
       rdcspv::OperationList ops;
 
+      // --- Atomic index: AtomicAdd(buf[0], 1) ---------------------------------
       rdcspv::Id accessChainRes = editor.MakeId();
-      ops.add(
-          rdcspv::OpAccessChain(ssboPtrType, accessChainRes, outputBufVar, {constZero, constZero}));
-
+      ops.add(rdcspv::OpAccessChain(ssboPtrType, accessChainRes, outputBufVar, {constZero, constZero}));
       rdcspv::Id atomicRes = editor.MakeId();
       ops.add(rdcspv::OpAtomicIAdd(uint32Type, atomicRes, accessChainRes, scopeDevice,
                                    semanticsRelaxed, constOne));
 
-      editor.AddOperations(site, ops);
+      // Re-find the (s)th TraceRayKHR. AddConstantImmediate (not called here,
+      // but AddEntryGlobals above may have shifted sections).
+      {
+        rdcspv::Iter funcIter2;
+        for(rdcspv::Iter fit = editor.Begin(rdcspv::Section::Functions); fit; fit++)
+        {
+          rdcspv::OpDecoder fdec(fit);
+          if(fdec.op == rdcspv::Op::Function && fdec.result == funcId)
+          {
+            funcIter2 = fit;
+            break;
+          }
+        }
+        if(funcIter2)
+        {
+          rdcspv::Iter insertPt2 = funcIter2;
+          insertPt2++;
+          for(rdcspv::OpDecoder d(insertPt2); d.op == rdcspv::Op::FunctionParameter;
+              insertPt2++, d.op = rdcspv::OpDecoder(insertPt2).op)
+          {
+          }
+
+          int32_t count = 0;
+          for(rdcspv::Iter ref = insertPt2; ref; ref++)
+          {
+            rdcspv::OpDecoder refDec(ref);
+            if(refDec.op == rdcspv::Op::TraceRayKHR)
+            {
+              if(count == s)
+              {
+                editor.AddOperations(ref, ops);
+                break;
+              }
+              count++;
+            }
+          }
+        }
+      }
+
       patchedAny = true;
     }
   }
@@ -1191,11 +1270,11 @@ bool PatchRayCallCountModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> 
   return patchedAny;
 }
 
-bool PatchRayCallStoreModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> &funcs,
+bool PatchRayCallStoreModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> &entryFuncs,
                              rdcspv::Id outputBufVar, rdcspv::Id uint32Type, rdcspv::Id floatType,
                              VkShaderStageFlagBits shaderStage)
 {
-  if(funcs.empty())
+  if(entryFuncs.empty())
     return false;
 
   rdcspv::Id vec3UintType = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<uint32_t>(), 3));
@@ -1203,8 +1282,6 @@ bool PatchRayCallStoreModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> 
 
   rdcspv::Id ssboUintPtr =
       editor.DeclareType(rdcspv::Pointer(uint32Type, rdcspv::StorageClass::StorageBuffer));
-  rdcspv::Id ssboFloatPtr =
-      editor.DeclareType(rdcspv::Pointer(floatType, rdcspv::StorageClass::StorageBuffer));
 
   rdcspv::Id constZero = editor.AddConstantImmediate<uint32_t>(0);
   rdcspv::Id constOne = editor.AddConstantImmediate<uint32_t>(1);
@@ -1212,24 +1289,22 @@ bool PatchRayCallStoreModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> 
   rdcspv::Id semanticsRelaxed = editor.AddConstantImmediate<uint32_t>(0);
 
   // Encode shaderType into maskAndShderType high byte
-  uint32_t shaderTypeVal = 0;
-  switch(shaderStage)
-  {
-    case VK_SHADER_STAGE_RAYGEN_BIT_KHR: shaderTypeVal = 1; break;
-    case VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR: shaderTypeVal = 2; break;
-    case VK_SHADER_STAGE_MISS_BIT_KHR: shaderTypeVal = 3; break;
-    default: shaderTypeVal = 0; break;
-  }
+  uint32_t shaderTypeVal = ShaderStageToRayHitType(shaderStage);
   rdcspv::Id shaderTypeConst = editor.AddConstantImmediate<uint32_t>(shaderTypeVal << 8);
 
-  rdcarray<rdcspv::Id> addedGlobals;
+  // Ensure the debug output SSBO is in the entry point interface.
+  // This must be done even if TraceRay is in helper functions, because
+  // the variable is accessed from the entry point's call graph.
+  for(rdcspv::Id entryId : entryFuncs)
+  {
+    rdcarray<rdcspv::Id> globals = {outputBufVar};
+    editor.AddEntryGlobals(entryId, globals);
+  }
 
   bool patchedAny = false;
 
-  for(rdcspv::Id funcId : funcs)
+  for(rdcspv::Id funcId : entryFuncs)
   {
-    // Search for the function in the function section instead of using GetID,
-    // which has stale idOffsets after type/variable additions.
     rdcspv::Iter funcIter;
     for(rdcspv::Iter fit = editor.Begin(rdcspv::Section::Functions); fit; fit++)
     {
@@ -1250,6 +1325,7 @@ bool PatchRayCallStoreModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> 
     {
     }
 
+    // Collect all TraceRayKHR sites (offset-dependent before ops building).
     rdcarray<rdcspv::Iter> traceRaySites;
     for(rdcspv::Iter it = insertPoint; it; it++)
     {
@@ -1258,45 +1334,52 @@ bool PatchRayCallStoreModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> 
         traceRaySites.push_back(it);
     }
 
-    for(rdcspv::Iter site : traceRaySites)
+    // Process sites in REVERSE order.
+    for(int32_t s = (int32_t)traceRaySites.size() - 1; s >= 0; s--)
     {
-      rdcspv::OperationList ops;
-      addedGlobals.clear();
+      rdcspv::Iter site = traceRaySites[s];
 
+      // (A) Parse TraceRay parameters from the (s)th site.
       rdcspv::OpTraceRayKHR traceRayInst(site);
+
+      // (B) Build ops (calls AddConstantImmediate which shifts the
+      // Types-Constants-Globals section, affecting Functions offsets).
+      rdcspv::OperationList ops;
 
       // --- Atomic index: bufIndex = AtomicAdd(buf[0], 1) + 1 ------------------
       rdcspv::Id accessChainRes = editor.MakeId();
-      ops.add(
-          rdcspv::OpAccessChain(ssboUintPtr, accessChainRes, outputBufVar, {constZero, constZero}));
+      ops.add(rdcspv::OpAccessChain(ssboUintPtr, accessChainRes, outputBufVar, {constZero, constZero}));
       rdcspv::Id atomicRes = editor.MakeId();
       ops.add(rdcspv::OpAtomicIAdd(uint32Type, atomicRes, accessChainRes, scopeDevice,
                                    semanticsRelaxed, constOne));
       rdcspv::Id bufIndex = editor.MakeId();
       ops.add(rdcspv::OpIAdd(uint32Type, bufIndex, atomicRes, constOne));
+      // Each RayCallInfo is 16 uint32_t. Multiply bufIndex by 16 so that
+      // data starts at array element 16 (skipping the counter at element 0).
+      rdcspv::Id const16 = editor.AddConstantImmediate<uint32_t>(16);
+      rdcspv::Id recordBase = editor.MakeId();
+      ops.add(rdcspv::OpIMul(uint32Type, recordBase, bufIndex, const16));
 
       auto writeUint = [&](uint32_t fieldOffset, rdcspv::Id value) {
         uint32_t wordOffset = fieldOffset / sizeof(uint32_t);
         rdcspv::Id offConst = editor.AddConstantImmediate<uint32_t>(wordOffset);
         rdcspv::Id arrayIdx = editor.MakeId();
-        ops.add(rdcspv::OpIAdd(uint32Type, arrayIdx, bufIndex, offConst));
+        ops.add(rdcspv::OpIAdd(uint32Type, arrayIdx, recordBase, offConst));
         rdcspv::Id destPtr = editor.MakeId();
         ops.add(rdcspv::OpAccessChain(ssboUintPtr, destPtr, outputBufVar, {constZero, arrayIdx}));
-        ops.add(rdcspv::OpStore(destPtr, value));
+        rdcarray<uint32_t> storeWords = {destPtr.value(), value.value()};
+        ops.add(rdcspv::Operation(rdcspv::Op::Store, storeWords));
       };
       auto writeFloat = [&](uint32_t fieldOffset, rdcspv::Id value) {
-        uint32_t wordOffset = fieldOffset / sizeof(uint32_t);
-        rdcspv::Id offConst = editor.AddConstantImmediate<uint32_t>(wordOffset);
-        rdcspv::Id arrayIdx = editor.MakeId();
-        ops.add(rdcspv::OpIAdd(uint32Type, arrayIdx, bufIndex, offConst));
-        rdcspv::Id destPtr = editor.MakeId();
-        ops.add(rdcspv::OpAccessChain(ssboFloatPtr, destPtr, outputBufVar, {constZero, arrayIdx}));
-        ops.add(rdcspv::OpStore(destPtr, value));
+        rdcspv::Id intVal = editor.MakeId();
+        ops.add(rdcspv::OpBitcast(uint32Type, intVal, value));
+        writeUint(fieldOffset, intVal);
       };
 
       // --- DispatchRaysIndex (LaunchIdKHR) ----------------------------------
-      rdcspv::Id launchId = editor.AddBuiltinInputLoad(ops, addedGlobals, ShaderStage::RayGen,
+      rdcpair<rdcspv::Id, rdcspv::Id> launchIdPair = editor.AddBuiltinInputLoad(ops, ShaderStage::RayGen,
                                                        rdcspv::BuiltIn::LaunchIdKHR, vec3UintType);
+      rdcspv::Id launchId = launchIdPair.first;
       rdcspv::Id dispatchX = editor.MakeId();
       ops.add(rdcspv::OpCompositeExtract(uint32Type, dispatchX, launchId, {0}));
       rdcspv::Id dispatchY = editor.MakeId();
@@ -1308,11 +1391,9 @@ bool PatchRayCallStoreModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> 
       writeUint(offsetof(RayCallInfo, dispatchZ), dispatchZ);
 
       // --- TraceRay parameters -----------------------------------------------
-      // maskAndShderType = cullMask | (shaderType << 8)
       rdcspv::Id encodedMask = editor.MakeId();
       ops.add(rdcspv::OpBitwiseOr(uint32Type, encodedMask, traceRayInst.cullMask, shaderTypeConst));
       writeUint(offsetof(RayCallInfo, maskAndShderType), encodedMask);
-
       writeUint(offsetof(RayCallInfo, flags), traceRayInst.rayFlags);
       writeUint(offsetof(RayCallInfo, hitGroupIndex), traceRayInst.sBTOffset);
       writeUint(offsetof(RayCallInfo, hitGroupMul), traceRayInst.sBTStride);
@@ -1328,7 +1409,6 @@ bool PatchRayCallStoreModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> 
       writeFloat(offsetof(RayCallInfo, originX), originX);
       writeFloat(offsetof(RayCallInfo, originY), originY);
       writeFloat(offsetof(RayCallInfo, originZ), originZ);
-
       writeFloat(offsetof(RayCallInfo, tMin), traceRayInst.rayTmin);
 
       // --- Ray direction ----------------------------------------------------
@@ -1341,11 +1421,45 @@ bool PatchRayCallStoreModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> 
       writeFloat(offsetof(RayCallInfo, dirX), dirX);
       writeFloat(offsetof(RayCallInfo, dirY), dirY);
       writeFloat(offsetof(RayCallInfo, dirZ), dirZ);
-
       writeFloat(offsetof(RayCallInfo, tMax), traceRayInst.rayTmax);
 
-      editor.AddOperations(site, ops);
-      editor.AddEntryGlobals(funcId, addedGlobals);
+      // (C) Re-find the (s)th TraceRayKHR AFTER ops building.
+      {
+        rdcspv::Iter funcIter2;
+        for(rdcspv::Iter fit = editor.Begin(rdcspv::Section::Functions); fit; fit++)
+        {
+          rdcspv::OpDecoder fdec(fit);
+          if(fdec.op == rdcspv::Op::Function && fdec.result == funcId)
+          {
+            funcIter2 = fit;
+            break;
+          }
+        }
+        if(funcIter2)
+        {
+          rdcspv::Iter insertPt2 = funcIter2;
+          insertPt2++;
+          for(rdcspv::OpDecoder d(insertPt2); d.op == rdcspv::Op::FunctionParameter;
+              insertPt2++, d.op = rdcspv::OpDecoder(insertPt2).op)
+          {
+          }
+
+          int32_t count = 0;
+          for(rdcspv::Iter ref = insertPt2; ref; ref++)
+          {
+            rdcspv::OpDecoder refDec(ref);
+            if(refDec.op == rdcspv::Op::TraceRayKHR)
+            {
+              if(count == s)
+              {
+                editor.AddOperations(ref, ops);
+                break;
+              }
+              count++;
+            }
+          }
+        }
+      }
 
       patchedAny = true;
     }
@@ -1371,8 +1485,12 @@ void PopulateSBTFromCache(const VulkanReplay::RayTraceSBTCache &cache, SBTHandle
   outSBTs.callableRegion = cache.callableRegion;
 }
 
-void PatchSBTRegion(bytebuf &sbtData, VkStridedDeviceAddressRegionKHR region,
-                    const bytebuf &newHandles, uint32_t groupCount, uint32_t handleSize)
+// PatchSBTRegion: replace shader handles in one SBT region.
+// The handles in newHandles are indexed by group index (0 = g0, 1 = g1, etc).
+// This function replaces entries starting at sourceGroupOffset * handleSize.
+static void PatchSBTRegion(bytebuf &sbtData, VkStridedDeviceAddressRegionKHR region,
+                           const bytebuf &newHandles, uint32_t groupCount, uint32_t handleSize,
+                           uint32_t sourceGroupOffset)
 {
   if(sbtData.empty() || region.size == 0 || region.stride == 0)
     return;
@@ -1380,10 +1498,10 @@ void PatchSBTRegion(bytebuf &sbtData, VkStridedDeviceAddressRegionKHR region,
   uint32_t stride = (uint32_t)region.stride;
   uint32_t numEntries = (uint32_t)(region.size / stride);
 
-  for(uint32_t i = 0; i < numEntries && i < groupCount; i++)
+  for(uint32_t i = 0; i < numEntries && (sourceGroupOffset + i) < groupCount; i++)
   {
     size_t dstOff = i * stride;
-    size_t srcOff = i * handleSize;
+    size_t srcOff = (sourceGroupOffset + i) * handleSize;
     if(dstOff + handleSize <= sbtData.size() && srcOff + handleSize <= newHandles.size())
     {
       memcpy(sbtData.data() + dstOff, newHandles.data() + srcOff, handleSize);
@@ -1394,10 +1512,17 @@ void PatchSBTRegion(bytebuf &sbtData, VkStridedDeviceAddressRegionKHR region,
 void PatchSBTData(SBTHandles &sbtData, const bytebuf &newHandles, uint32_t groupCount,
                   uint32_t handleSize)
 {
-  PatchSBTRegion(sbtData.raygenSBT, sbtData.raygenRegion, newHandles, groupCount, handleSize);
-  PatchSBTRegion(sbtData.missSBT, sbtData.missRegion, newHandles, groupCount, handleSize);
-  PatchSBTRegion(sbtData.hitSBT, sbtData.hitRegion, newHandles, groupCount, handleSize);
-  PatchSBTRegion(sbtData.callableSBT, sbtData.callableRegion, newHandles, groupCount, handleSize);
+  uint32_t raygenGroupIdx = 0;
+  uint32_t missGroupIdx = 1;
+  uint32_t hitGroupIdx = 2;
+  // callable not used
+
+  PatchSBTRegion(sbtData.raygenSBT, sbtData.raygenRegion, newHandles, groupCount, handleSize,
+                 raygenGroupIdx);
+  PatchSBTRegion(sbtData.missSBT, sbtData.missRegion, newHandles, groupCount, handleSize,
+                 missGroupIdx);
+  PatchSBTRegion(sbtData.hitSBT, sbtData.hitRegion, newHandles, groupCount, handleSize, hitGroupIdx);
+  PatchSBTRegion(sbtData.callableSBT, sbtData.callableRegion, newHandles, groupCount, handleSize, 0);
 }
 
 bool UploadSBTs(VkDevice wrappedDevice, SBTHandles &sbtData, VkInstance instance,
@@ -1450,6 +1575,11 @@ bool UploadSBTs(VkDevice wrappedDevice, SBTHandles &sbtData, VkInstance instance
     alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     alloc.allocationSize = memReqs.size;
     alloc.memoryTypeIndex = memTypeIdx;
+
+    VkMemoryAllocateFlagsInfo allocFlags = {};
+    allocFlags.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
+    allocFlags.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
+    alloc.pNext = &allocFlags;
 
     res = ObjDisp(wrappedDevice)->AllocateMemory(device, &alloc, NULL, &buf.mem);
     if(res != VK_SUCCESS)
@@ -1567,13 +1697,6 @@ PatchedPipelineResult CreatePatchedPipeline(WrappedVulkan *vk, VulkanResourceMan
   {
     if(idx < (uint32_t)stages.size() && !patchedSPIRVs[idx].empty())
     {
-      // dump the SPIR-V for debugging
-      if(!Vulkan_Debug_RayTraceDumpDirPath().empty())
-      {
-        rdcstr fn = Vulkan_Debug_RayTraceDumpDirPath() + "/spv_stage" + ToStr(idx) + ".spv";
-        FileIO::WriteAll(fn, patchedSPIRVs[idx]);
-      }
-
       VkShaderModuleCreateInfo smCI = {};
       smCI.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
       smCI.pCode = patchedSPIRVs[idx].data();
@@ -1621,6 +1744,7 @@ PatchedPipelineResult CreatePatchedPipeline(WrappedVulkan *vk, VulkanResourceMan
       ObjDisp(wrappedDevice)->CreateDescriptorSetLayout(realDevice, &dslCI, NULL, &debugDSL);
   if(res != VK_SUCCESS)
   {
+    RDCERR("CreateDescriptorSetLayout failed");
     for(VkShaderModule mod : patchedModules)
       ObjDisp(wrappedDevice)->DestroyShaderModule(realDevice, mod, NULL);
     return result;
@@ -1698,8 +1822,9 @@ bytebuf GetShaderGroupHandles(VkDevice wrappedDevice, VkPipeline pipeline, uint3
 
   handles.resize(groupCount * handleSize);
   VkDevice realDevice = Unwrap(wrappedDevice);
-  VkResult ret = ObjDisp(wrappedDevice)->GetRayTracingShaderGroupHandlesKHR(
-      realDevice, pipeline, 0, groupCount, handles.size(), handles.data());
+  VkResult ret = ObjDisp(wrappedDevice)
+                     ->GetRayTracingShaderGroupHandlesKHR(realDevice, pipeline, 0, groupCount,
+                                                          handles.size(), handles.data());
 
   if(ret != VK_SUCCESS)
     handles.clear();
@@ -1715,12 +1840,12 @@ uint32_t ShaderStageToRayHitType(VkShaderStageFlagBits stage)
 {
   switch(stage)
   {
-    case VK_SHADER_STAGE_RAYGEN_BIT_KHR: return 0;
-    case VK_SHADER_STAGE_INTERSECTION_BIT_KHR: return 4;
-    case VK_SHADER_STAGE_ANY_HIT_BIT_KHR: return 5;
-    case VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR: return 6;
-    case VK_SHADER_STAGE_MISS_BIT_KHR: return 7;
-    case VK_SHADER_STAGE_CALLABLE_BIT_KHR: return 8;
+    case VK_SHADER_STAGE_RAYGEN_BIT_KHR: return (uint32_t)ShaderStage::RayGen;
+    case VK_SHADER_STAGE_INTERSECTION_BIT_KHR: return (uint32_t)ShaderStage::Intersection;
+    case VK_SHADER_STAGE_ANY_HIT_BIT_KHR: return (uint32_t)ShaderStage::AnyHit;
+    case VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR: return (uint32_t)ShaderStage::ClosestHit;
+    case VK_SHADER_STAGE_MISS_BIT_KHR: return (uint32_t)ShaderStage::Miss;
+    case VK_SHADER_STAGE_CALLABLE_BIT_KHR: return (uint32_t)ShaderStage::Callable;
     default: return 0xFF;
   }
 }
@@ -1822,7 +1947,7 @@ bool RunInstrumentedDispatch(WrappedVulkan *vk, VkPipeline pipeline, VkPipelineL
   VkBufferCreateInfo rbCI = {};
   rbCI.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
   rbCI.size = bufSize;
-  rbCI.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  rbCI.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 
   res = ObjDisp(wrappedDevice)->CreateBuffer(dev, &rbCI, NULL, &resources.readbackBuf);
   if(res != VK_SUCCESS)
@@ -1915,11 +2040,11 @@ bool RunInstrumentedDispatch(WrappedVulkan *vk, VkPipeline pipeline, VkPipelineL
   ObjDisp(wrappedDevice)->CmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipeline);
 
   // Bind original RT descriptor sets from render state at their original indices.
-  // Using ObjDisp(wrappedDevice) dispatch table since cmd is an unwrapped driver handle
-  // (ObjDisp(cmd) and Unwrap(cmd) only work with wrapped handles).
+  // Using ObjDisp(wrappedDevice) dispatch table since cmd is an unwrapped driver handle.
   {
     VulkanRenderState &rs = vk->GetRenderState();
-    for(size_t i = 0; i < rs.rt.descSets.size(); i++)
+    uint32_t maxBindIndex = RDCMAX(0, (int32_t)debugSetIndex - 1);
+    for(size_t i = 0; i < rs.rt.descSets.size() && (uint32_t)i <= maxBindIndex; i++)
     {
       if(rs.rt.descSets[i].IsBound() && rs.rt.descSets[i].descSet != ResourceId())
       {
@@ -1992,15 +2117,36 @@ bool RunInstrumentedDispatch(WrappedVulkan *vk, VkPipeline pipeline, VkPipelineL
   submitInfo.pCommandBuffers = &cmd;
 
   VkQueue queue = Unwrap(vk->GetQ());
-  ObjDisp(wrappedDevice)->QueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
-  ObjDisp(wrappedDevice)->QueueWaitIdle(queue);
+  VkFenceCreateInfo fenceCI = {};
+  fenceCI.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+  VkFence fence = VK_NULL_HANDLE;
+  ObjDisp(wrappedDevice)->CreateFence(dev, &fenceCI, NULL, &fence);
+  ObjDisp(wrappedDevice)->QueueSubmit(queue, 1, &submitInfo, fence);
 
-  // Read back
-  bytebuf readData;
-  vk->GetDebugManager()->GetBufferData(resources.readbackBuf, (uint64_t)bufSize, 0,
-                                       (uint64_t)bufSize, readData);
-  outData = readData;
+  VkResult waitRet = ObjDisp(wrappedDevice)->WaitForFences(dev, 1, &fence, VK_TRUE, 5000000000ULL);
+  ObjDisp(wrappedDevice)->DestroyFence(dev, fence, NULL);
+  if(waitRet != VK_SUCCESS)
+  {
+    RDCERR("GPU hang during instrumented dispatch! waitRet=%d", (int)waitRet);
+    return false;
+  }
 
+  // Read back directly from host-visible readback buffer
+  void *mapped = NULL;
+  VkResult mapRes =
+      ObjDisp(wrappedDevice)->MapMemory(dev, resources.readbackMem, 0, VK_WHOLE_SIZE, 0, &mapped);
+  if(mapRes == VK_SUCCESS && mapped)
+  {
+    VkMappedMemoryRange range = {};
+    range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+    range.memory = resources.readbackMem;
+    range.offset = 0;
+    range.size = VK_WHOLE_SIZE;
+    ObjDisp(wrappedDevice)->InvalidateMappedMemoryRanges(dev, 1, &range);
+
+    outData.assign((const byte *)mapped, (size_t)bufSize);
+    ObjDisp(wrappedDevice)->UnmapMemory(dev, resources.readbackMem);
+  }
   resources.Cleanup(wrappedDevice);
 
   return true;

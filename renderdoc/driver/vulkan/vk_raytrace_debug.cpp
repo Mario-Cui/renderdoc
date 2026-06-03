@@ -1220,13 +1220,15 @@ bool PatchRayCallCountModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> 
     {
     }
 
-    // Collect all TraceRayKHR call sites.
+    // Collect all TraceRayKHR call sites (stop at OpFunctionEnd).
     rdcarray<rdcspv::Iter> traceRaySites;
     for(rdcspv::Iter it = insertPoint; it; it++)
     {
       rdcspv::OpDecoder decoder(it);
       if(decoder.op == rdcspv::Op::TraceRayKHR)
         traceRaySites.push_back(it);
+      else if(decoder.op == rdcspv::Op::FunctionEnd || decoder.op == rdcspv::Op::Function)
+        break;
     }
 
     // Process sites in REVERSE order.
@@ -1276,6 +1278,10 @@ bool PatchRayCallCountModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> 
                 break;
               }
               count++;
+            }
+            else if(refDec.op == rdcspv::Op::FunctionEnd || refDec.op == rdcspv::Op::Function)
+            {
+              break;
             }
           }
         }
@@ -1343,22 +1349,68 @@ bool PatchRayCallStoreModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> 
     {
     }
 
-    // Collect all TraceRayKHR sites (offset-dependent before ops building).
+    // Collect all TraceRayKHR sites (stop at OpFunctionEnd).
     rdcarray<rdcspv::Iter> traceRaySites;
     for(rdcspv::Iter it = insertPoint; it; it++)
     {
       rdcspv::OpDecoder decoder(it);
       if(decoder.op == rdcspv::Op::TraceRayKHR)
         traceRaySites.push_back(it);
+      else if(decoder.op == rdcspv::Op::FunctionEnd || decoder.op == rdcspv::Op::Function)
+        break;
     }
 
     // Process sites in REVERSE order.
     for(int32_t s = (int32_t)traceRaySites.size() - 1; s >= 0; s--)
     {
-      rdcspv::Iter site = traceRaySites[s];
+      // (A) Re-find the (s)th TraceRay to parse its parameters.
+      // We must re-scan because AddConstantImmediate from previous iterations
+      // shifted sections and invalidated traceRaySites[] iterators.
+      rdcspv::Iter siteToParse;
+      {
+        rdcspv::Iter funcIter2;
+        for(rdcspv::Iter fit = editor.Begin(rdcspv::Section::Functions); fit; fit++)
+        {
+          rdcspv::OpDecoder fdec(fit);
+          if(fdec.op == rdcspv::Op::Function && fdec.result == funcId)
+          {
+            funcIter2 = fit;
+            break;
+          }
+        }
+        if(funcIter2)
+        {
+          rdcspv::Iter insertPt2 = funcIter2;
+          insertPt2++;
+          for(rdcspv::OpDecoder d(insertPt2); d.op == rdcspv::Op::FunctionParameter;
+              insertPt2++, d.op = rdcspv::OpDecoder(insertPt2).op)
+          {
+          }
 
-      // (A) Parse TraceRay parameters from the (s)th site.
-      rdcspv::OpTraceRayKHR traceRayInst(site);
+          int32_t count = 0;
+          for(rdcspv::Iter ref = insertPt2; ref; ref++)
+          {
+            rdcspv::OpDecoder refDec(ref);
+            if(refDec.op == rdcspv::Op::TraceRayKHR)
+            {
+              if(count == s)
+              {
+                siteToParse = ref;
+                break;
+              }
+              count++;
+            }
+            else if(refDec.op == rdcspv::Op::FunctionEnd || refDec.op == rdcspv::Op::Function)
+            {
+              break;
+            }
+          }
+        }
+      }
+      if(!siteToParse)
+        continue;
+
+      rdcspv::OpTraceRayKHR traceRayInst(siteToParse);
 
       // (B) Build ops (calls AddConstantImmediate which shifts the
       // Types-Constants-Globals section, affecting Functions offsets).
@@ -1476,6 +1528,10 @@ bool PatchRayCallStoreModule(rdcspv::Editor &editor, const rdcarray<rdcspv::Id> 
               }
               count++;
             }
+            else if(refDec.op == rdcspv::Op::FunctionEnd || refDec.op == rdcspv::Op::Function)
+            {
+              break;
+            }
           }
         }
       }
@@ -1517,13 +1573,32 @@ static void PatchSBTRegion(bytebuf &sbtData, VkStridedDeviceAddressRegionKHR reg
   uint32_t stride = (uint32_t)region.stride;
   uint32_t numEntries = (uint32_t)(region.size / stride);
 
+  RDCDEBUG("PatchSBTRegion: region.size=%llu stride=%u numEntries=%u groupCount=%u handleSize=%u "
+           "sourceGroupOffset=%u",
+           (unsigned long long)region.size, stride, numEntries, groupCount, handleSize,
+           sourceGroupOffset);
+
   for(uint32_t i = 0; i < numEntries && (sourceGroupOffset + i) < groupCount; i++)
   {
     size_t dstOff = i * stride;
     size_t srcOff = (sourceGroupOffset + i) * handleSize;
     if(dstOff + handleSize <= sbtData.size() && srcOff + handleSize <= newHandles.size())
     {
+      uint32_t oldVal = 0, newVal = 0;
+      if(handleSize >= 4)
+      {
+        memcpy(&oldVal, sbtData.data() + dstOff, 4);
+        memcpy(&newVal, newHandles.data() + srcOff, 4);
+      }
       memcpy(sbtData.data() + dstOff, newHandles.data() + srcOff, handleSize);
+
+      RDCDEBUG("  entry[%u]: dstOff=%zu srcGroup=%u handle[0..3]=0x%08x -> 0x%08x",
+               i, dstOff, sourceGroupOffset + i, oldVal, newVal);
+    }
+    else
+    {
+      RDCWARN("  entry[%u]: SKIP dstOff=%zu (sbtData.size=%zu) srcOff=%zu (newHandles.size=%zu)",
+              i, dstOff, sbtData.size(), srcOff, newHandles.size());
     }
   }
 }
@@ -1535,7 +1610,11 @@ void PatchSBTData(SBTHandles &sbtData, const bytebuf &newHandles, uint32_t group
   // Determine group indices dynamically from rtGroups + rtStages.
   uint32_t raygenGroupIdx = ~0U;
   uint32_t missGroupIdx = ~0U;
-  rdcarray<uint32_t> hitGroupIndices;
+  uint32_t firstHitGroupIdx = ~0U;
+  uint32_t numHitGroups = 0;
+
+  RDCDEBUG("PatchSBTData: groupCount=%u handleSize=%u rtGroups.size=%zu",
+           groupCount, handleSize, rtGroups.size());
 
   for(uint32_t g = 0; g < (uint32_t)rtGroups.size() && g < groupCount; g++)
   {
@@ -1545,30 +1624,56 @@ void PatchSBTData(SBTHandles &sbtData, const bytebuf &newHandles, uint32_t group
       if(shaderIdx < (uint32_t)rtStages.size())
       {
         VkShaderStageFlagBits stage = rtStages[shaderIdx].stage;
-        if(stage == VK_SHADER_STAGE_RAYGEN_BIT_KHR)
+        RDCDEBUG("  group[%u]: GENERAL shaderIdx=%u stage=0x%x", g, shaderIdx, (uint32_t)stage);
+        if(stage == VK_SHADER_STAGE_RAYGEN_BIT_KHR && raygenGroupIdx == ~0U)
           raygenGroupIdx = g;
-        else if(stage == VK_SHADER_STAGE_MISS_BIT_KHR)
+        else if(stage == VK_SHADER_STAGE_MISS_BIT_KHR && missGroupIdx == ~0U)
           missGroupIdx = g;
+      }
+      else
+      {
+        RDCWARN("  group[%u]: GENERAL shaderIdx=%u >= rtStages.size=%zu", g, shaderIdx, rtStages.size());
       }
     }
     else
     {
-      // TRIANGLES_HIT_GROUP_KHR or PROCEDURAL_HIT_GROUP_KHR
-      hitGroupIndices.push_back(g);
+      RDCDEBUG("  group[%u]: HIT_GROUP (type=%d)", g, (int)rtGroups[g].type);
+      if(firstHitGroupIdx == ~0U)
+        firstHitGroupIdx = g;
+      numHitGroups++;
     }
   }
 
   // Default fallback: assume sequential layout 0=raygen, 1=miss, 2+=hit
   if(raygenGroupIdx == ~0U)
-    raygenGroupIdx = 0;
-  if(missGroupIdx == ~0U)
-    missGroupIdx = 1;
-  if(hitGroupIndices.empty())
   {
-    // Assume all remaining groups after raygen/miss are hit groups
+    RDCDEBUG("  fallback: raygenGroupIdx=0");
+    raygenGroupIdx = 0;
+  }
+  if(missGroupIdx == ~0U)
+  {
+    RDCDEBUG("  fallback: missGroupIdx=1");
+    missGroupIdx = 1;
+  }
+  if(firstHitGroupIdx == ~0U)
+  {
     uint32_t skip = RDCMAX(raygenGroupIdx, missGroupIdx) + 1;
-    for(uint32_t g = skip; g < groupCount; g++)
-      hitGroupIndices.push_back(g);
+    RDCDEBUG("  fallback: hit groups start at skip=%u count=%u", skip, groupCount - skip);
+    firstHitGroupIdx = skip;
+    numHitGroups = groupCount - skip;
+  }
+
+  RDCDEBUG("  resolved: raygen=%u miss=%u firstHit=%u numHit=%u",
+           raygenGroupIdx, missGroupIdx, firstHitGroupIdx, numHitGroups);
+
+  // Dump first 4 bytes of each group handle in newHandles
+  for(uint32_t g = 0; g < groupCount && g < 8; g++)
+  {
+    size_t off = (size_t)g * handleSize;
+    uint32_t val = 0;
+    if(off + 4 <= newHandles.size())
+      memcpy(&val, newHandles.data() + off, 4);
+    RDCDEBUG("  newHandle[%u] first4=0x%08x", g, val);
   }
 
   PatchSBTRegion(sbtData.raygenSBT, sbtData.raygenRegion, newHandles, groupCount, handleSize,
@@ -1579,7 +1684,7 @@ void PatchSBTData(SBTHandles &sbtData, const bytebuf &newHandles, uint32_t group
   // Patch all hit group entries in one call. The hit region's entries are indexed
   // starting from the first hit group index, with consecutive group indices.
   PatchSBTRegion(sbtData.hitSBT, sbtData.hitRegion, newHandles, groupCount, handleSize,
-                 hitGroupIndices.empty() ? 2 : hitGroupIndices[0]);
+                 firstHitGroupIdx);
 
   PatchSBTRegion(sbtData.callableSBT, sbtData.callableRegion, newHandles, groupCount, handleSize, 0);
 }

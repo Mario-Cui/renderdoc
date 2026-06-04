@@ -202,6 +202,7 @@ void D3D12Replay::CreateResources()
     {
       if(m_DriverInfo.vendor == GPUVendor::AMD || m_DriverInfo.vendor == GPUVendor::Samsung)
       {
+#if 0
         RDCLOG("AMD GPU detected - trying to initialise AMD counters");
         AMDCounters *countersAMD = new AMDCounters(m_pDevice->IsDebugLayerEnabled());
 
@@ -215,6 +216,7 @@ void D3D12Replay::CreateResources()
         {
           delete countersAMD;
         }
+#endif
       }
 
       if(m_DriverInfo.vendor == GPUVendor::nVidia)

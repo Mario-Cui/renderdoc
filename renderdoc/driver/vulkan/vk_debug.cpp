@@ -2672,7 +2672,9 @@ void VulkanDebugManager::FillWithDiscardPatternOnHost(VkDevice device, DiscardTy
                                DiscardPatternHeight, mainCopies, stencilCopies);
 
   VkMemoryToImageCopy hostCopy = {
-      VK_STRUCTURE_TYPE_MEMORY_TO_IMAGE_COPY, NULL, pattern.data(),
+      VK_STRUCTURE_TYPE_MEMORY_TO_IMAGE_COPY,
+      NULL,
+      pattern.data(),
       // The rest of the parameters are copied from `mainCopies` and `stencilCopies`.
   };
 
@@ -3930,9 +3932,9 @@ void VulkanReplay::CreateResources()
   if(!m_pDriver->GetReplay()->IsRemoteProxy() && Vulkan_HardwareCounters())
   {
     GPUVendor vendor = m_pDriver->GetDriverInfo().Vendor();
-
     if(vendor == GPUVendor::AMD || vendor == GPUVendor::Samsung)
     {
+#if 0
       RDCLOG("AMD GPU detected - trying to initialise AMD counters");
       AMDCounters *counters = new AMDCounters();
       if(counters && counters->Init(AMDCounters::ApiType::Vk, (void *)&context))
@@ -3944,6 +3946,7 @@ void VulkanReplay::CreateResources()
         delete counters;
         m_pAMDCounters = NULL;
       }
+#endif
     }
 #if DISABLED(RDOC_ANDROID) && DISABLED(RDOC_APPLE)
     else if(vendor == GPUVendor::nVidia)

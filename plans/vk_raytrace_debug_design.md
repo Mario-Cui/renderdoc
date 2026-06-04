@@ -222,9 +222,14 @@ editor.AddDecoration(rdcspv::OpDecorate(
 
 使用固定值：
 - `RAY_DEBUG_SET = 31`（最高 set index，与应用程序冲突概率低）
-- `RAY_DEBUG_BINDING = 0`
+- `RAY_DEBUG_BINDING = 100`（⚠️ =0 会与 `RTOutput : register(u0)` / `u0` 等用户 binding 冲突，改为 100）
 
 实际在使用时，`CreatePatchedPipeline` 将 debug descriptor set layout **追加在所有已有 set layout 之后**。这要求 pipeline layout 的 set 数量必须 ≤ 31。如果 > 31 则需要扫描空闲 set slot。
+
+**SPIR-V 中的 set/binding 写死 vs 动态分配**：
+当前实现将 set=31 / binding=100 直接编译到每个修补后的 SPIR-V 模块中。
+这要求应用程序的原始 pipeline layout 的 set 数量 ≤ 31，且没有使用 binding=100。
+如果发生冲突，需要改为在创建 pipeline layout 后动态修改 SPIR-V 中的 decoration。
 
 ### 3.4 在函数体开始处注入代码（Hit Shader）
 
@@ -274,11 +279,29 @@ Id bufIndex = OpIAdd(atomicRes, constOne);  // 从 index 1 开始写入
 //    tMin              ← OpRayTMinKHR
 //    tCurrent          ← OpRayTCurrentKHR
 //    flags             ← OpIncomingRayFlagsKHR
-//    instanceIndex     ← OpInstanceIndexKHR
+//    instanceIndex     ← OpInstanceId（⚠️ 使用 InstanceId 而非 InstanceIndex，后者在 NVIDIA 驱动上会导致 ClosestHit 编译器崩溃）
 //    instanceId        ← OpInstanceCustomIndexKHR
 //    geometryIndex     ← OpRayGeometryIndexKHR
 //    primitiveIndex    ← OpPrimitiveIdKHR
 //    hitKind           ← OpHitKindKHR
+
+// 4. 每条记录在 buffer 中的偏移计算：
+//    buffer 是 RuntimeArray<uint32>，AtomicAdd 返回线性索引。
+//    需要将 bufIndex 乘以每条的 uint32 数量：
+//    - RayHitInfo:  18 uint32/条 → recordBase = bufIndex * 18
+//    - RayCallInfo: 16 uint32/条 → recordBase = bufIndex * 16
+//    Id recordBase = OpIMul(uint32Type, bufIndex, constStride);
+//    writeUint(offset) → arrayIdx = recordBase + (offset / sizeof(uint32))
+
+// 5. Store buffer 大小计算：
+//    storeBufSize = (totalCount + 1) * sizeof(RayHitInfo/RayCallInfo)
+//    必须 +1 因为 index 0 保留给 count，数据从 index 1 开始。
+//    如果 totalCount == 0，设为 1 以避免 GPU hang。
+
+// 6. OpStore 格式：必须使用手动 3-word OpStore（无 MemoryAccess word）
+//    rdcarray<uint32_t> storeWords = {destPtr.value(), value.value()};
+//    ops.add(rdcspv::Operation(rdcspv::Op::Store, storeWords));
+//    NVIDIA 驱动编译器在部分 SPIR-V 版本上会崩溃于带 MemoryAccess 的 OpStore。
 ```
 
 ### 3.5 RayCall 数据收集
@@ -303,8 +326,14 @@ Id bufIndex = OpIAdd(atomicRes, constOne);  // 从 index 1 开始写入
 
 **maskAndShderType 编码**：
 - 低 8 位：cullMask
-- 高 8 位（或中高 8 位）：shader stage 类型（1=RayGen, 2=ClosestHit, 3=Miss）
+- 高 8 位（或中高 8 位）：shader stage 类型（使用 ShaderStage 枚举值：RayGen=10, AnyHit=12, ClosestHit=13, Miss=14, Callable=15）
 - 这样 CPU 端可以从字段中解出 shader type
+
+**RayCall Instrumentation 注意事项**：
+- **多个 TraceRay 站点**：一个 entry function 中可能有多个 TraceRayKHR 调用。Store pass 需要在**每个** TraceRay 前独立插入 instrumentation。
+- **反向处理**：Store pass 对同一个函数中的多个 TraceRay 站点应**反向遍历**（从最后一个到第一个）。每次 `AddOperations` 向 Functions section 插入数据都会改变后续指令的偏移，反向处理保证已处理的站点不受影响。
+- **函数边界**：library pipeline 中一个 shader module 包含多个 entry function。收集 TraceRay 站点时必须检查 `OpFunctionEnd` / `OpFunction`，**不能跨越函数边界**扫描。
+- **迭代器失效**：`AddBuiltinInputLoad` 和 `AddConstantImmediate` 会在 Types-Constants 段插入数据，使 Functions 段中所有已保存的迭代器失效。Store pass 应在构建完 ops 后**重新扫描**找到目标 TraceRay 站点再进行 `AddOperations`。
 
 ### 3.6 两类 Pass
 
@@ -320,9 +349,71 @@ Id bufIndex = OpIAdd(atomicRes, constOne);  // 从 index 1 开始写入
 #### Store Pass（存储数据）
 
 - 注入完整的内置变量读取 + `OpStore` 代码
-- 根据 count pass 返回的数量创建合适大小的 StorageBuffer
+- 根据 count pass 返回的数量创建合适大小的 StorageBuffer：
+  `VkDeviceSize storeBufSize = (VkDeviceSize)(totalCount + 1) * sizeof(RayHitInfo);`
 - Dispatch → 回读所有数据
 - 解析时跳过 `record[0]`（count 占位），从 `record[1]` 开始
+
+### 3.7 rdcspv::Editor 作用域与 SPIR-V 数据生命周期
+
+`rdcspv::Editor` 持有对 `rdcarray<uint32_t> &spirvWords` 的可修改引用。
+Editor 析构时**不会回写**修改后的 SPIR-V，因为修改直接发生在 `spirvWords` 数组上（通过 `addWords` 等操作在原始 vector 上插入/删除）。
+
+但有以下重要限制：
+
+**⚠️ Editor 必须在大括号作用域内使用**：
+```cpp
+// ✅ 正确：Editor 在独立作用域中
+{
+    rdcspv::Editor editor(patchedSPIRVs[idx]);
+    editor.Prepare();
+    // ... 所有 editor 操作 ...
+}
+// Editor 在此析构，patchedSPIRVs[idx] 已包含完整有效的 SPIR-V
+
+// 然后才能将 patchedSPIRVs[idx] 传给 CreatePatchedPipeline
+VkShaderModuleCreateInfo smCI = {};
+smCI.pCode = patchedSPIRVs[idx].data();  // ✅ 安全
+```
+
+如果 Editor 和 pipeline 创建在同一作用域，编译器的栈变量销毁顺序可能不保证
+SPIR-V 数据在使用前已完成所有修改。
+
+**GetSPIRV() vs 直接引用**：
+`editor.Prepare()` 后修改直接在 `spirvWords` 上发生，无需调用 `GetSPIRV()`。
+`GetSPIRV()` 返回的是 `m_SPIRV` 的 const 引用，用于读取。
+
+### 3.8 SPIR-V 验证工作流
+
+调试 SPIR-V 问题时使用 Vulkan SDK 的 `spirv-val` 工具验证修补后的模块：
+
+```bash
+spirv-dis patched_stage.spv     # 反汇编查看
+spirv-val patched_stage.spv     # 验证（常见错误：未定义 ID、接口变量未列出）
+```
+
+常见验证错误：
+- `Interface variable id <N> is used by entry point ... but is not listed as an interface` — 需要 `AddEntryGlobals` 或 SPIR-V ≥ 1.5（隐式接口）
+- `ID '<N>' has not been defined` — 迭代器失效导致写入错误 ID（见 9.10）
+
+### 3.9 已 Patch Stage 的过滤
+
+Count Pass 后必须过滤 `stagePatched`，只将**实际被 patch 的 stage** 传给 `CreatePatchedPipeline`：
+
+```cpp
+// 只传递有 instrumentation 的 stage
+rdcarray<uint32_t> patchedHitStages;
+for(uint32_t idx : hitStageIndices)
+{
+    if(stagePatched[idx])
+        patchedHitStages.push_back(idx);
+}
+// 用 patchedHitStages 而非 hitStageIndices 创建 pipeline
+```
+
+如果 `anyPatched == false` 或 `patchedHitStages.empty()`，提前返回。
+未 patch 的 stage 在 store pass 中直接使用原始 SPIR-V（`modInfo.spirv.GetSPIRV()`）。
+
 
 ---
 
@@ -379,8 +470,10 @@ for each stage needing patching:
 
 createInfo.pStages = stages.data();
 
-// 3. 复制 groups
+// 3. 复制 groups，清除 capture/replay handles（原 pipeline 的 handle 对新 pipeline 无效）
 rdcarray<VkRayTracingShaderGroupCreateInfoKHR> groups = origPipeInfo.rtGroups;
+for each group:
+    group.pShaderGroupCaptureReplayHandle = NULL;
 createInfo.pGroups = groups.data();
 
 // 4. 创建 debug descriptor set layout
@@ -456,9 +549,10 @@ const RayTraceSBTCache *sbtCache = GetRayTraceSBT(eventId);
 void PatchSBTData(SBTHandles &sbtData,
                   const bytebuf &newHandles,
                   uint32_t groupCount,
-                  uint32_t handleSize)
+                  uint32_t handleSize,
+                  const rdcarray<VkRayTracingShaderGroupCreateInfoKHR> &rtGroups,
+                  const rdcarray<VkPipelineShaderStageCreateInfo> &rtStages)
 {
-    // 对每个 SBT region，遍历 entry，用新 pipeline 的 handle 替换
     for each entry in SBT region:
         memcpy(sbtData + i * stride,
                newHandles + i * handleSize,
@@ -466,27 +560,29 @@ void PatchSBTData(SBTHandles &sbtData,
 }
 ```
 
-#### 5.2.1 映射假设：SBT Entry Index = Pipeline Group Index
+#### 5.2.1 Group Index 动态检测
 
-当前 `PatchSBTRegion` 的实现假设 SBT entry `i` 对应 pipeline group `i`。
-这对以下场景成立但无 API 保证：
+Pipeline 的 `rtGroups` 数组中的 group index ≠ group type 的固定映射（0=raygen, 1=miss, 2+=hit）。
+例如，一个 pipeline 可能有多个 Miss shader（group 1 和 group 2 都是 Miss）。
 
-- **Raygen**：单 entry，对应 group 0，正确
-- **Miss**：entry i 通常对应 miss group i，正确
-- **Hit group**：TraceRay 的 `sbtOffset` 可以偏移起始位置，
-  SBT entry layout 不一定按 group index 顺序排列
-- **Callable**：同 Miss
+`PatchSBTData` 必须动态检测正确的 group index：
 
-**局限性**：同一个 pipeline group 可能出现在 SBT 的多个位置；
-SBT 中也可能跳过某些 group。
+```cpp
+for each group g in rtGroups:
+    if type == GENERAL:
+        stage = rtStages[g.generalShader].stage
+        if stage == RayGen  → raygenGroupIdx = g
+        if stage == Miss    → missGroupIdx = g (只取第一个 Miss)
+    else:  // HIT_GROUP
+        firstHitGroupIdx = g (只取第一个 Hit)
+        numHitGroups++
+```
 
-**D3D12 的参考方案**：D3D12 的 `InitPostRaytracingData` 不依赖 1:1 假设。
-它读取 patched SBT 后，解析每个 entry 的 shader identifier，
-通过 `D3D12ShaderExportDatabase` 匹配到 export name，
-再用新 state object 的 identifier 替换。Vulkan 没有等价的 export database 机制，
-因此应尽量保证 1:1 映射的有效性，或在 SBT 解析时添加更健壮的匹配逻辑。
+- **raygen**：使用第一个 `GENERAL + RayGen` 的 group index
+- **miss**：使用第一个 `GENERAL + Miss` 的 group index（⚠️ 之前 bug：用最后一个 Miss 覆盖了前一个）
+- **hit**：使用第一个 Hit group index。Vulkan 规范要求 Hit groups 连续排列，`PatchSBTRegion` 内部会自动用 `sourceGroupOffset + i` 遍历每个 entry
 
-#### 5.2.2 Region Stride 必须保留
+**Fallback**：动态检测失败时回退到 0=raygen, 1=miss, 2+=hit。
 
 `PatchSBTRegion` 使用 `region.stride` 遍历 SBT entries。这个 stride **必须来自原始 SBT region**（从 `RayTraceSBTCache` 中保存的 `VkStridedDeviceAddressRegionKHR`），
 而不是来自 `UploadSBTs` 对齐后的 buffer 大小。
@@ -667,7 +763,7 @@ missRegion.stride = originalMissStride;
 
 | 方面 | D3D12 | Vulkan |
 |---|---|---|
-| Output 绑定 | 额外的 UAV Root Parameter（通过修改 root signature） | 额外的 DescriptorSet（set=31）+ StorageBuffer |
+| Output 绑定 | 额外的 UAV Root Parameter（通过修改 root signature） | 额外的 DescriptorSet（追加在原 layout 之后）+ StorageBuffer (binding=100) |
 | SBT 来源 | re-play 时从 GPU 回读 indirect buffer | Serialisation 时缓存的 `RayTraceSBTCache` |
 | Pipeline 创建 | `CreateStateObject` + subs object 管理 | `vkCreateRayTracingPipelinesKHR` |
 | Command list 管理 | `GetDebugManager()->ResetDebugList()` | 自行创建临时 command pool / buffer |
@@ -847,27 +943,50 @@ Capture 可能在支持 ray tracing 的不同 GPU 上 replay，handle size 可�
 
 ### 9.10 Instrumentation 目标范围：Entry Function vs 全部函数
 
-当前 `PatchRayHitCountModule` 和 `PatchRayHitStoreModule` 遍历 `Section::Functions` 中的
-所有 `OpFunction`，包含 helper 函数而非仅 entry point。
+**Hit shader**（AnyHit/ClosestHit/Miss/Intersection）：
+不会调用 `TraceRayKHR`，instrumentation 只需在 entry function 开头插一次（AtomicAdd + 内置变量读取）。
+当前 `PatchRayHitCountModule` / `PatchRayHitStoreModule` 使用 `FindMatchingEntryFunctions` 找到 entry point，
+仅对 entry function 注入，正确。
 
-**问题**：当 shader module 中含有 helper 函数时：
-- Count pass：helper 函数每次调用都会执行 AtomicAdd，导致计数膨胀
-- Store pass：helper 函数每次调用都会写入一条记录，产生脏数据
+**Call shader**（RayGen/ClosestHit/Miss）：
+可以在 entry function 或 helper function 中调用 `TraceRayKHR`。
+当前实现简化处理：**仅扫描 entry function**（而非所有函数）中的 TraceRay 站点。
+理由是典型 shader 中 TraceRay 几乎总在 entry function 直接调用。
+如有需要可引入调用图（`OpFunctionCall` 传递闭包）来精确确定可到达的函数集合。
 
-**修复方案**：从 `Section::EntryPoints` 中解析 entry function 的 function ID，
-仅对 entry function 注入 instrumentation 代码。
+**Library Pipeline 支持**：
+Vulkan 允许同一 shader module 中包含多个 entry point（如 ClosestHit + Miss）。
+`FindMatchingEntryFunctions` 按 entry point 名称匹配，只会返回与当前 stage
+名称匹配的函数，不会误 instrument 其他 entry point。
+
+**迭代器安全**：
+RayCall 的 store pass 需要特别注意迭代器失效问题。`AddBuiltinInputLoad` 和
+`AddConstantImmediate` 向 Types-Constants 段插入数据会使 Functions 段偏移变化。
+处理模式：
+1. (A) 步：**完整重新扫描** entry function，找到第 s 个 TraceRay 并解析参数
+2. (B) 步：构建 ops（包含 AddConstantImmediate/AddBuiltinInputLoad）
+3. (C) 步：**再次完整重新扫描** entry function，找到第 s 个 TraceRay 并执行 AddOperations
 
 ### 9.11 Shader Stage 内置变量兼容性
 
 不同 raytracing shader stage 能访问的内置变量集合不同（见 3.2 节表格）。
-当前 `PatchRayHitStoreModule` 对所有四种 shader type 注入相同的内置变量读取代码，
-对 Miss 和 Intersection 会加载它们无权访问的内置变量。
+当前 `PatchRayHitStoreModule` 实现中：
 
-**修复方案**：参考 D3D12 的 `IsHitInsertShaderType` 设计，将 hit shader 分为两个子类：
-- **基础 RayHit**（AnyHit/ClosestHit/Miss/Intersection）：注入通用内置变量（origin/direction/tMin/tCurrent/flags/dispatchThreadID）
-- **扩展 Hit**（AnyHit/ClosestHit，以及 Intersection 可选）：注入 hit-specific 内置变量（InstanceIndex/InstanceID/PrimitiveId/GeometryIndex/HitKind）
+- **基础字段**（所有 stage）：origin/direction/tMin/tCurrent/flags/dispatchThreadID — 使用 `ShaderStage::RayGen` 作为 AddBuiltinInputLoad 的 stage 参数（这些内置变量对所有 stage 可用）
+- **Hit-specific 字段**（InstanceIndex/InstanceID/PrimitiveId/GeometryIndex/HitKind）：仅当 `shaderStage == AnyHit || shaderStage == ClosestHit` 时注入。Miss shader 跳过。
 
-Miss shader 跳过 hit-specific 字段的加载和写入。
+**InstanceIndex 驱动兼容性**：
+NVIDIA 驱动上 `BuiltIn::InstanceIndex`（值 44）在 ClosestHit entry point 中会导致编译器崩溃。
+修复：使用 `BuiltIn::InstanceId`（值 43）。两者在 this-hit 场景下语义等价。
+
+**ShaderStageToRayHitType 编码**：
+必须返回与 CPU 端 `ShaderStage` 枚举一致的值才能被 UI 正确显示：
+- `ShaderStage::RayGen = 10`
+- `ShaderStage::Intersection = 11`
+- `ShaderStage::AnyHit = 12`
+- `ShaderStage::ClosestHit = 13`
+- `ShaderStage::Miss = 14`
+- `ShaderStage::Callable = 15`
 
 ### 9.12 SBT Entry 到 Pipeline Group 的映射
 
@@ -885,6 +1004,103 @@ Miss shader 跳过 hit-specific 字段的加载和写入。
 SPIR-V 指令名称和 BuiltIn 枚举值在不同版本的 SPIR-V 头文件中可能不同。
 SPIR-V 1.6（Vulkan 1.3+）中部分 raytracing builtins 的名称有变化。
 需确保使用的 `rdcspv::BuiltIn` 枚举值与目标 SPIR-V 版本兼容。
+
+### 9.14 SPIR-V 1.5 隐式 Entry Point 接口
+
+SPIR-V 1.5+（Vulkan 1.2+ 使用 ray tracing 时必须使用 1.5）规定所有全局变量
+自动成为 entry point 接口的一部分，无需显式列在 `OpEntryPoint` 中。
+因此 `AddEntryGlobals` 对 SPIR-V 1.5 模块是**可选的**（不会影响验证或执行）。
+
+当前实现仍然调用 `AddEntryGlobals` 以确保与 SPIR-V 1.4 的兼容性，
+但不再对 batch 收集的 builtin globals 调用（避免迭代器失效）。
+
+### 9.15 Library Pipeline 中的 SBT Handle 替换
+
+Library pipeline 中多个 entry point 共享同一个 shader module。
+`PatchSBTData` 通过 `rtGroups` + `rtStages` 动态计算 group index 来规避硬编码假设。
+参见 5.2.1 节。
+
+### 9.16 GPU Fence 安全销毁
+
+`RunInstrumentedDispatch` 中，fence 在 `WaitForFences` 后立即 `DestroyFence`。
+但在某些驱动上 fence 可能在队列还在使用时就被销毁，触发验证层警告。
+修复：在 `QueueWaitIdle` 之后再销毁 fence。当前实现在 `WaitForFences` timeout（5 秒）后
+返回 `GPU hang` 错误并跳过销毁 fence 后的 cleanup。
+
+### 9.17 AddBuiltinInputLoad 的两个重载
+
+`rdcspv::Editor` 提供两个 `AddBuiltinInputLoad` 重载：
+
+```cpp
+// 1. 3 参数版本（推荐）：自动收集新变量到 addedGlobals
+rdcspv::Id AddBuiltinInputLoad(OperationList &ops, rdcarray<Id> &addedGlobals,
+                                ShaderStage stage, BuiltIn builtin, Id type);
+
+// 2. 2 参数版本：返回 pair<loadResult, variableId>
+rdcpair<Id, Id> AddBuiltinInputLoad(OperationList &ops,
+                                     ShaderStage stage, BuiltIn builtin, Id type);
+```
+
+- 2 参数版本返回 `rdcpair<Id, Id>`，不能直接赋值给 `rdcspv::Id`
+- 当不需要 `addedGlobals` 收集（SPIR-V 1.5 隐式接口）时可以用 2 参数版本
+- 如果变量已存在（被前一个 entry point 加载过），`addedGlobals` 不会重复添加（`AddBuiltinInputLoad` 内部会在 `builtinInputs` map 中查找缓存）
+
+### 9.18 DescriptorSet 绑定顺序
+
+在 `RunInstrumentedDispatch` 中绑定 DescriptorSet 时必须先绑定**原始 pipeline 的所有 set**，
+再绑定**debug set**：
+
+```cpp
+// 1. 先绑定原 pipeline 的 descriptor sets（set 0 … set N-1）
+for each set in rs.rt.descSets:
+    CmdBindDescriptorSets(cmd, ..., setIndex=i, 1, &ds, dynCount, dynOffsets);
+
+// 2. 最后绑定 debug set（set = N，追加在原有 layout 之后）
+CmdBindDescriptorSets(cmd, ..., setIndex=debugSetIndex, 1, &descSet, 0, NULL);
+```
+
+`debugSetIndex = origLayoutInfo.descSetLayouts.size()`，即追加在所有原 set 之后。
+不能先绑定 debug set，否则原 set 会覆盖 debug set 的 binding。
+
+### 9.19 totalCount == 0 的防护
+
+Count pass 返回 0 时，Store pass 不能创建大小为 0 的 buffer。
+必须将 totalCount 设为 1：
+
+```cpp
+if(totalCount == 0)
+    totalCount = 1;
+VkDeviceSize storeBufSize = (VkDeviceSize)(totalCount + 1) * sizeof(RayHitInfo);
+```
+
+同时 buffer 大小公式必须是 `(totalCount + 1) * sizeof()` 而非 `totalCount * sizeof()`，
+因为 index 0 保留给 count。
+
+### 9.20 验证 Validation Layer 警告
+
+`vkDestroyFence` 警告 `fence is currently in use by VkQueue`：
+说明 fence 在 GPU 队列完成前就被销毁了。虽然不影响功能，但违反 Vulkan 规范。
+修复方案：submit 后增加 `QueueWaitIdle` 或延长 timeout。当前 5 秒 timeout 值对复杂
+ray tracing dispatch 可能不够。
+
+### 9.21 SPIR-V 调试 dump
+
+通过配置 `Vulkan_Debug_RayTraceDumpDirPath` 环境变量 / RenderDoc 设置可以 dump
+patch 前后的 SPIR-V 文件：
+
+```cpp
+RDOC_CONFIG(rdcstr, Vulkan_Debug_RayTraceDumpDirPath, "",
+            "Path to dump raytrace debug shader patched SPIR-V files.");
+```
+
+dump 文件名格式：
+- `rayhit_count_stage<N>_before.spv` — count pass patch 前
+- `rayhit_count_stage<N>.spv` — count pass patch 后
+- `rayhit_store_stage<N>_before.spv` — store pass patch 前
+- `rayhit_store_stage<N>.spv` — store pass patch 后
+
+> 注意：只有 `PatchRayHitStoreModule` 和 `PatchRayHitCountModule` 周围有 dump 代码。
+> `PatchRayCall*Module` 的 dump 需要用同样的方式添加。
 
 ---
 

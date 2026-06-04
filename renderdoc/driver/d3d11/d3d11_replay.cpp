@@ -167,8 +167,10 @@ void D3D11Replay::InitReplayOnDevice(IDXGIFactory *factory)
 
     if(m_DriverInfo.vendor == GPUVendor::AMD)
     {
+#if 0
       RDCLOG("AMD GPU detected - trying to initialise AMD counters");
       countersAMD = new AMDCounters();
+#endif
     }
     else if(m_DriverInfo.vendor == GPUVendor::nVidia)
     {
@@ -4490,6 +4492,14 @@ static StructuredProcessRegistration D3D11ProcessRegistration(RDCDriver::D3D11,
                                                               &D3D11_ProcessStructured);
 
 bool D3D11Replay::GetRayHitData(uint32_t eventId, rdcarray<RayHitInfo> &invocations)
-{ (void)eventId; invocations.clear(); return false; }
+{
+  (void)eventId;
+  invocations.clear();
+  return false;
+}
 bool D3D11Replay::GetRayCallData(uint32_t eventId, rdcarray<RayCallInfo> &traceCalls)
-{ (void)eventId; traceCalls.clear(); return false; }
+{
+  (void)eventId;
+  traceCalls.clear();
+  return false;
+}

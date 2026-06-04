@@ -108,7 +108,8 @@ elseif(WIN32)
     set(VULKAN_LAYER_NAME "VK_LAYER_${RDOC_BASE_NAME_UPPER}_Capture")
 
     set(json_in ${CMAKE_CURRENT_SOURCE_DIR}/renderdoc.json)
-    set(json_out ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${RDOC_BASE_NAME}${VULKAN_JSON_SUFFIX}.json)
+    # On Windows DLLs are treated as RUNTIME outputs, so the JSON must be alongside them
+    set(json_out ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${RDOC_BASE_NAME}${VULKAN_JSON_SUFFIX}.json)
 
     configure_file(${json_in} ${json_out})
 elseif(UNIX)

@@ -1305,16 +1305,26 @@ void WrappedID3D12GraphicsCommandList::BuildRaytracingAccelerationStructure(
           return true;
         },
         [buildData]() { buildData->Release(); });
+    auto MarkVAResourceFrameReferenced = [this](D3D12_GPU_VIRTUAL_ADDRESS addr,
+                                                FrameRefType refType) {
+      if(addr == 0)
+        return;
+
+      ResourceId id = WrappedID3D12Resource::GetResIDFromAddr(addr);
+
+      if(id != ResourceId())
+        m_ListRecord->MarkResourceFrameReferenced(id, refType);
+    };
+
     // an indirect AS build will pull in buffers we can't know about
     if(pDesc->Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)
     {
       if(pDesc->Inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS)
         m_ListRecord->cmdInfo->forceMapsListEvent = true;
 
-      m_ListRecord->MarkResourceFrameReferenced(
-          WrappedID3D12Resource::GetResIDFromAddr(pDesc->Inputs.InstanceDescs), eFrameRef_Read);
+      MarkVAResourceFrameReferenced(pDesc->Inputs.InstanceDescs, eFrameRef_Read);
     }
-    else
+    else if(pDesc->Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL)
     {
       for(UINT i = 0; i < pDesc->Inputs.NumDescs; i++)
       {
@@ -1325,66 +1335,50 @@ void WrappedID3D12GraphicsCommandList::BuildRaytracingAccelerationStructure(
 
         if(geom.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS)
         {
-          m_ListRecord->MarkResourceFrameReferenced(
-              WrappedID3D12Resource::GetResIDFromAddr(geom.AABBs.AABBs.StartAddress), eFrameRef_Read);
+          MarkVAResourceFrameReferenced(geom.AABBs.AABBs.StartAddress, eFrameRef_Read);
         }
         else if(geom.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES)
         {
-          m_ListRecord->MarkResourceFrameReferenced(
-              WrappedID3D12Resource::GetResIDFromAddr(geom.Triangles.IndexBuffer), eFrameRef_Read);
-          m_ListRecord->MarkResourceFrameReferenced(
-              WrappedID3D12Resource::GetResIDFromAddr(geom.Triangles.Transform3x4), eFrameRef_Read);
-          m_ListRecord->MarkResourceFrameReferenced(
-              WrappedID3D12Resource::GetResIDFromAddr(geom.Triangles.VertexBuffer.StartAddress),
-              eFrameRef_Read);
+          MarkVAResourceFrameReferenced(geom.Triangles.IndexBuffer, eFrameRef_Read);
+          MarkVAResourceFrameReferenced(geom.Triangles.Transform3x4, eFrameRef_Read);
+          MarkVAResourceFrameReferenced(geom.Triangles.VertexBuffer.StartAddress, eFrameRef_Read);
         }
         else if(geom.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES &&
                 geom.OmmTriangles.pOmmLinkage)
         {
+          const D3D12_RAYTRACING_GEOMETRY_OMM_LINKAGE_DESC &ommLinkage =
+              *geom.OmmTriangles.pOmmLinkage;
+
           // Mark triangle buffers (same as TRIANGLES) from the pointed-to pTriangles
           if(geom.OmmTriangles.pTriangles)
           {
-            m_ListRecord->MarkResourceFrameReferenced(
-                WrappedID3D12Resource::GetResIDFromAddr(geom.OmmTriangles.pTriangles->IndexBuffer),
-                eFrameRef_Read);
-            m_ListRecord->MarkResourceFrameReferenced(
-                WrappedID3D12Resource::GetResIDFromAddr(geom.OmmTriangles.pTriangles->Transform3x4),
-                eFrameRef_Read);
-            m_ListRecord->MarkResourceFrameReferenced(
-                WrappedID3D12Resource::GetResIDFromAddr(
-                    geom.OmmTriangles.pTriangles->VertexBuffer.StartAddress),
-                eFrameRef_Read);
+            MarkVAResourceFrameReferenced(geom.OmmTriangles.pTriangles->IndexBuffer, eFrameRef_Read);
+            MarkVAResourceFrameReferenced(geom.OmmTriangles.pTriangles->Transform3x4, eFrameRef_Read);
+            MarkVAResourceFrameReferenced(geom.OmmTriangles.pTriangles->VertexBuffer.StartAddress,
+                                          eFrameRef_Read);
           }
           // Mark OMM index buffer
-          if(geom.OmmTriangles.pOmmLinkage->OpacityMicromapIndexBuffer.StartAddress)
+          if(ommLinkage.OpacityMicromapIndexBuffer.StartAddress)
           {
-            m_ListRecord->MarkResourceFrameReferenced(
-                WrappedID3D12Resource::GetResIDFromAddr(
-                    geom.OmmTriangles.pOmmLinkage->OpacityMicromapIndexBuffer.StartAddress),
-                eFrameRef_Read);
+            MarkVAResourceFrameReferenced(ommLinkage.OpacityMicromapIndexBuffer.StartAddress,
+                                          eFrameRef_Read);
           }
           // Mark OMM Array buffer
-          if(geom.OmmTriangles.pOmmLinkage->OpacityMicromapArray)
+          if(ommLinkage.OpacityMicromapArray)
           {
-            m_ListRecord->MarkResourceFrameReferenced(
-                WrappedID3D12Resource::GetResIDFromAddr(
-                    geom.OmmTriangles.pOmmLinkage->OpacityMicromapArray),
-                eFrameRef_Read);
+            MarkVAResourceFrameReferenced(ommLinkage.OpacityMicromapArray, eFrameRef_Read);
           }
         }
       }
     }
-    // ALSO handle OMM_ARRAY type build resource marking
-    if(pDesc->Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_ARRAY &&
-       pDesc->Inputs.pOpacityMicromapArrayDesc)
+    else if(pDesc->Inputs.Type ==
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_ARRAY &&
+            pDesc->Inputs.pOpacityMicromapArrayDesc)
     {
-      m_ListRecord->MarkResourceFrameReferenced(
-          WrappedID3D12Resource::GetResIDFromAddr(pDesc->Inputs.pOpacityMicromapArrayDesc->InputBuffer),
-          eFrameRef_Read);
-      m_ListRecord->MarkResourceFrameReferenced(
-          WrappedID3D12Resource::GetResIDFromAddr(
-              pDesc->Inputs.pOpacityMicromapArrayDesc->PerOmmDescs.StartAddress),
-          eFrameRef_Read);
+      MarkVAResourceFrameReferenced(pDesc->Inputs.pOpacityMicromapArrayDesc->InputBuffer,
+                                    eFrameRef_Read);
+      MarkVAResourceFrameReferenced(
+          pDesc->Inputs.pOpacityMicromapArrayDesc->PerOmmDescs.StartAddress, eFrameRef_Read);
     }
   }
 }

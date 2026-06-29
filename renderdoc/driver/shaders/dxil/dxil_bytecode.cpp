@@ -2311,7 +2311,7 @@ const Type *Program::GetPointerType(const Type *type, Type::PointerAddrSpace add
     if(t->type == Type::Pointer && t->inner == type && t->addrSpace == addrSpace)
       return t;
 
-  RDCWARN("Couldn't find pointer type as expected. Adding transient type");
+  RDCDEBUG("Couldn't find pointer type as expected. Adding transient type");
 
   Type *newType = new(alloc) Type;
   newType->type = Type::Pointer;

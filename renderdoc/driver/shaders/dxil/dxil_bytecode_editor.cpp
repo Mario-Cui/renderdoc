@@ -158,8 +158,11 @@ ProgramEditor::~ProgramEditor()
   // on debug builds, run through dxil for "validation" if it's available.
   // we need BOTH of htese because dxil.dll's interface is incomplete, it lacks the library
   // functionality that we only need to create blobs
-  HMODULE dxil = GetModuleHandleA("dxil.dll");
-  HMODULE dxc = GetModuleHandleA("dxcompiler.dll");
+  // HMODULE dxil = GetModuleHandleA("./dxil.dll");
+  // HMODULE dxc = GetModuleHandleA("./dxcompiler.dll");
+  HMODULE dxil = LoadLibraryA("./dxil.dll");
+  HMODULE dxc = LoadLibraryA("./dxcompiler.dll");
+
 
   if(dxc != NULL && dxil != NULL)
   {
@@ -1927,36 +1930,64 @@ namespace DXIL
 // ============================================================================
 // raytrace debug extension implementations
 // ============================================================================
+static bool FunctionSignatureMatches(const Function *func, const Type *retType,
+                                     const rdcarray<const Type *> &params)
+{
+  if(func == NULL || func->type == NULL || func->type->type != Type::Function)
+    return false;
+
+  if(func->type->inner != retType || func->type->members.size() != params.size())
+    return false;
+
+  for(size_t i = 0; i < params.size(); i++)
+    if(func->type->members[i] != params[i])
+      return false;
+
+  return true;
+}
+
 Function *ProgramEditor::DeclareFunctionNoCheck(const rdcstr &name, const Type *retType,
                                                  rdcarray<const Type *> params,
                                                  Attribute desiredAttrs)
 {
-  Function *ret = GetFunctionByName(name);
+  rdcstr declareName = name;
+  Function *sameName = NULL;
 
-  if(!ret || (ret && (ret->type->inner != retType) && (ret->type->members.size() != params.size())))
+  for(Function *func : m_Functions)
   {
-    const Type *funcType = CreateFunctionType(retType, params);
+    if(func->name != name)
+      continue;
 
-    Function functionDef;
-    functionDef.name = name;
-    functionDef.type = funcType;
-    functionDef.external = true;
+    if(FunctionSignatureMatches(func, retType, params))
+      return func;
 
-    m_AttributeGroups.push_back(alloc.alloc<AttributeGroup>());
-    m_AttributeGroups.back()->slotIndex = AttributeGroup::FunctionSlot;
-    m_AttributeGroups.back()->params = desiredAttrs;
-
-    m_AttributeSets.push_back(alloc.alloc<AttributeSet>());
-    m_AttributeSets.back()->functionSlot = m_AttributeGroups.back();
-    m_AttributeSets.back()->orderedGroups = {m_AttributeGroups.size() - 1};
-
-    functionDef.attrs = m_AttributeSets.back();
-
-    Function *newFunc = DeclareFunction(functionDef);
-    return newFunc;
+    sameName = func;
   }
 
-  return ret;
+  if(sameName != NULL)
+  {
+    rdcstr uniqueName;
+    for(uint32_t suffix = 1;; suffix++)
+    {
+      uniqueName = name + ".rdoc" + ToStr(suffix);
+      if(GetFunctionByName(uniqueName) == NULL)
+        break;
+    }
+
+    RDCWARN("Function '%s' already exists with a different signature, declaring '%s' instead",
+            name.c_str(), uniqueName.c_str());
+    declareName = uniqueName;
+  }
+
+  const Type *funcType = CreateFunctionType(retType, params);
+
+  Function functionDef;
+  functionDef.name = declareName;
+  functionDef.type = funcType;
+  functionDef.external = true;
+  functionDef.attrs = GetAttributeSet(desiredAttrs);
+
+  return DeclareFunction(functionDef);
 }
 
 rdcarray<DXIL::RDATData::FunctionInfo2> &ProgramEditor::GetRDATFunctionInfos()

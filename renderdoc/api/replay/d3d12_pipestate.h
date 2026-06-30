@@ -914,6 +914,199 @@ struct RootSignature
   rdcarray<StaticSampler> staticSamplers;
 };
 
+DOCUMENT("Describes a D3D12 raytracing shader export.");
+struct RaytracingShader
+{
+  DOCUMENT("");
+  RaytracingShader() = default;
+  RaytracingShader(const RaytracingShader &) = default;
+  RaytracingShader &operator=(const RaytracingShader &) = default;
+
+  DOCUMENT(R"(The export name for this shader.
+
+:type: str
+)");
+  rdcstr name;
+
+  DOCUMENT(R"(The shader stage for this export.
+
+:type: ShaderStage
+)");
+  ShaderStage stage = ShaderStage::Count;
+
+  DOCUMENT(R"(The :class:`ResourceId` of the DXIL library containing this shader.
+
+:type: ResourceId
+)");
+  ResourceId resourceId;
+
+  DOCUMENT(R"(The reflection data for this shader.
+
+:type: ShaderReflection
+)");
+  const ShaderReflection *reflection = NULL;
+
+  DOCUMENT(R"(The entry point name inside the DXIL library.
+
+:type: str
+)");
+  rdcstr entryPoint;
+};
+
+DOCUMENT("Describes a D3D12 raytracing hit group.");
+struct RaytracingHitGroup
+{
+  DOCUMENT("");
+  RaytracingHitGroup() = default;
+  RaytracingHitGroup(const RaytracingHitGroup &) = default;
+  RaytracingHitGroup &operator=(const RaytracingHitGroup &) = default;
+
+  DOCUMENT(R"(The export name for this hit group.
+
+:type: str
+)");
+  rdcstr name;
+
+  DOCUMENT(R"(``True`` if this hit group uses procedural primitives, ``False`` if it uses triangles.
+
+:type: bool
+)");
+  bool proceduralPrimitive = false;
+
+  DOCUMENT(R"(The closest-hit shader export used by this hit group.
+
+:type: str
+)");
+  rdcstr closestHit;
+
+  DOCUMENT(R"(The any-hit shader export used by this hit group.
+
+:type: str
+)");
+  rdcstr anyHit;
+
+  DOCUMENT(R"(The intersection shader export used by this hit group.
+
+:type: str
+)");
+  rdcstr intersection;
+};
+
+DOCUMENT("Describes a D3D12 raytracing local root signature association.");
+struct RaytracingLocalRootSignature
+{
+  DOCUMENT("");
+  RaytracingLocalRootSignature() = default;
+  RaytracingLocalRootSignature(const RaytracingLocalRootSignature &) = default;
+  RaytracingLocalRootSignature &operator=(const RaytracingLocalRootSignature &) = default;
+
+  DOCUMENT(R"(Details of the local root signature structure and root parameters.
+
+:type: D3D12RootSignature
+)");
+  RootSignature rootSignature;
+
+  DOCUMENT(R"(The shader or hit group exports associated with this local root signature.
+
+If empty, this local root signature applies to all applicable exports in the state object.
+
+:type: List[str]
+)");
+  rdcarray<rdcstr> exports;
+};
+
+DOCUMENT("Describes a D3D12 raytracing shader configuration.");
+struct RaytracingShaderConfig
+{
+  DOCUMENT("");
+  RaytracingShaderConfig() = default;
+  RaytracingShaderConfig(const RaytracingShaderConfig &) = default;
+  RaytracingShaderConfig &operator=(const RaytracingShaderConfig &) = default;
+
+  DOCUMENT(R"(The maximum ray payload size in bytes.
+
+:type: int
+)");
+  uint32_t maxPayloadSize = 0;
+
+  DOCUMENT(R"(The maximum attribute size in bytes.
+
+:type: int
+)");
+  uint32_t maxAttributeSize = 0;
+
+  DOCUMENT(R"(The shader or hit group exports associated with this shader configuration.
+
+If empty, this shader configuration applies to all applicable exports in the state object.
+
+:type: List[str]
+)");
+  rdcarray<rdcstr> exports;
+};
+
+DOCUMENT("Describes the D3D12 raytracing pipeline state.");
+struct RaytracingState
+{
+  DOCUMENT("");
+  RaytracingState() = default;
+  RaytracingState(const RaytracingState &) = default;
+  RaytracingState &operator=(const RaytracingState &) = default;
+
+  DOCUMENT(R"(The :class:`ResourceId` of the current raytracing state object.
+
+:type: ResourceId
+)");
+  ResourceId stateObjectResourceId;
+
+  DOCUMENT(R"(The state object flags.
+
+:type: int
+)");
+  uint32_t stateObjectFlags = 0;
+
+  DOCUMENT(R"(Details of the global root signature used by the raytracing pipeline.
+
+:type: D3D12RootSignature
+)");
+  RootSignature globalRootSignature;
+
+  DOCUMENT(R"(The local root signatures in the raytracing state object.
+
+:type: List[D3D12RaytracingLocalRootSignature]
+)");
+  rdcarray<RaytracingLocalRootSignature> localRootSignatures;
+
+  DOCUMENT(R"(The shader configurations in the raytracing state object.
+
+:type: List[D3D12RaytracingShaderConfig]
+)");
+  rdcarray<RaytracingShaderConfig> shaderConfigs;
+
+  DOCUMENT(R"(The maximum trace recursion depth for the raytracing pipeline.
+
+:type: int
+)");
+  uint32_t maxTraceRecursionDepth = 0;
+
+  DOCUMENT(R"(The raytracing pipeline flags.
+
+:type: int
+)");
+  uint32_t pipelineFlags = 0;
+
+  DOCUMENT(R"(The shader exports in the raytracing state object.
+
+:type: List[D3D12RaytracingShader]
+)");
+  rdcarray<RaytracingShader> shaders;
+
+  DOCUMENT(R"(The hit groups in the raytracing state object.
+
+:type: List[D3D12RaytracingHitGroup]
+)");
+  rdcarray<RaytracingHitGroup> hitGroups;
+};
+
 DOCUMENT("Describes the current state of D3D12 predicated rendering.");
 struct Predication
 {
@@ -1020,6 +1213,12 @@ struct State
 )");
   Shader meshShader;
 
+  DOCUMENT(R"(The raytracing pipeline state.
+
+:type: D3D12RaytracingState
+)");
+  RaytracingState raytracing;
+
   DOCUMENT(R"(The stream-out pipeline stage.
 
 :type: D3D12StreamOut
@@ -1071,5 +1270,10 @@ DECLARE_REFLECTION_STRUCT(D3D12Pipe::RootTableRange);
 DECLARE_REFLECTION_STRUCT(D3D12Pipe::RootParam);
 DECLARE_REFLECTION_STRUCT(D3D12Pipe::StaticSampler);
 DECLARE_REFLECTION_STRUCT(D3D12Pipe::RootSignature);
+DECLARE_REFLECTION_STRUCT(D3D12Pipe::RaytracingShader);
+DECLARE_REFLECTION_STRUCT(D3D12Pipe::RaytracingHitGroup);
+DECLARE_REFLECTION_STRUCT(D3D12Pipe::RaytracingLocalRootSignature);
+DECLARE_REFLECTION_STRUCT(D3D12Pipe::RaytracingShaderConfig);
+DECLARE_REFLECTION_STRUCT(D3D12Pipe::RaytracingState);
 DECLARE_REFLECTION_STRUCT(D3D12Pipe::Predication);
 DECLARE_REFLECTION_STRUCT(D3D12Pipe::State);

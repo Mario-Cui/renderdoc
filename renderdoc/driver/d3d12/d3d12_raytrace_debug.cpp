@@ -1241,7 +1241,7 @@ static RayDebugSBTLayout GetRayDebugSBTLayout(const D3D12_DISPATCH_RAYS_DESC &di
   layout.size += AlignUp(dispatchDesc.HitGroupTable.SizeInBytes, sbtAlignSize);
 
   layout.callableTableOffset = layout.size;
-  layout.size += AlignUp(dispatchDesc.CallableShaderTable.SizeInBytes, sbtAlignSize);
+  layout.size += dispatchDesc.CallableShaderTable.SizeInBytes;
 
   return layout;
 }
@@ -1295,55 +1295,104 @@ static void CollectRayDebugSBTEntries(const D3D12_DISPATCH_RAYS_DESC &dispatchDe
                              dispatchDesc.CallableShaderTable.StrideInBytes);
 }
 
-static void ResolveRayDebugSBTEntryNames(WrappedID3D12StateObject *mainWrappedStateObject,
+static bool ResolveRayDebugSBTEntryName(ID3D12StateObjectProperties *properties,
+                                        const rdcwstr &exportName, uint32_t stateObjectIndex,
+                                        rdcarray<RtStateShaderData> &shaderDatas)
+{
+  if(properties == NULL || exportName.length() == 0)
+    return false;
+
+  void *originShaderIdentifier = properties->GetShaderIdentifier(exportName.c_str());
+  if(originShaderIdentifier == NULL)
+    return false;
+
+  bool resolved = false;
+  for(RtStateShaderData &stateShaderData : shaderDatas)
+  {
+    if(stateShaderData.name.length() > 0)
+      continue;
+
+    if(IdentifierEqual(stateShaderData.identifier, (uint32_t *)originShaderIdentifier))
+    {
+      stateShaderData.name = exportName;
+      stateShaderData.stateObjectIndex = stateObjectIndex;
+      resolved = true;
+    }
+  }
+
+  return resolved;
+}
+
+static bool ResolveRayDebugSBTEntryWrappedName(
+    const D3D12ShaderExportDatabase::ShaderExportInfo &exportInfo, const rdcwstr &exportName,
+    uint32_t stateObjectIndex, rdcarray<RtStateShaderData> &shaderDatas)
+{
+  if(exportName.length() == 0)
+    return false;
+
+  bool resolved = false;
+  for(RtStateShaderData &stateShaderData : shaderDatas)
+  {
+    if(stateShaderData.name.length() > 0 || IdentifierEqualZero(stateShaderData.identifier))
+      continue;
+
+    ResourceId identifierObjectId;
+    memcpy(&identifierObjectId, stateShaderData.identifier, sizeof(identifierObjectId));
+    uint32_t identifierIndex =
+        stateShaderData.identifier[sizeof(identifierObjectId) / sizeof(uint32_t)];
+
+    if(identifierObjectId == exportInfo.id && identifierIndex == exportInfo.identifierIndex)
+    {
+      stateShaderData.name = exportName;
+      stateShaderData.stateObjectIndex = stateObjectIndex;
+      resolved = true;
+    }
+  }
+
+  return resolved;
+}
+
+static void ResolveRayDebugSBTEntryNames(const rdcarray<RtStateCacheData> &rtStateCacheDatas,
                                          rdcarray<RtStateShaderData> &shaderDatas)
 {
-  D3D12ShaderExportDatabase *shaderExportDataBase = mainWrappedStateObject->exports;
-
-  rdcarray<D3D12ShaderExportDatabase *> shaderExports = {};
-  shaderExports.reserve(1 + shaderExportDataBase->GetParentDatabases().size());
-  shaderExports.push_back(shaderExportDataBase);
-
-  for(auto *parentShaderExport : shaderExportDataBase->GetParentDatabases())
-    shaderExports.push_back(parentShaderExport);
-
-  uint32_t exportStateObjectIndex = 0;
-  for(auto *shaderExport : shaderExports)
+  for(uint32_t stateObjectIndex = 0; stateObjectIndex < rtStateCacheDatas.size(); stateObjectIndex++)
   {
+    WrappedID3D12StateObject *wrappedStateObject =
+        rtStateCacheDatas[stateObjectIndex].wrappedStateObject;
+    if(wrappedStateObject == NULL || wrappedStateObject->exports == NULL)
+      continue;
+
+    D3D12ShaderExportDatabase *shaderExport = wrappedStateObject->exports;
+    ID3D12StateObjectProperties *properties = shaderExport->GetRealObjectProperties();
+
     auto exportInfoList = shaderExport->GetExportInfoList();
     for(auto &exportInfo : exportInfoList)
     {
-      rdcwstr exportName = StringFormat::UTF82Wide(exportInfo.altName);
-
-      void *originShaderIdentifier =
-          shaderExport->GetRealObjectProperties()->GetShaderIdentifier(exportName.c_str());
-      if(NULL == originShaderIdentifier)
+      bool resolved = false;
+      if(!exportInfo.altName.empty())
       {
-        if(exportInfo.name.empty())
-          continue;
-
-        exportName = StringFormat::UTF82Wide(exportInfo.name);
-        originShaderIdentifier =
-            shaderExport->GetRealObjectProperties()->GetShaderIdentifier(exportName.c_str());
-        if(NULL == originShaderIdentifier)
-          continue;
+        rdcwstr exportName = StringFormat::UTF82Wide(exportInfo.altName);
+        resolved =
+            ResolveRayDebugSBTEntryName(properties, exportName, stateObjectIndex, shaderDatas);
+        if(!resolved)
+          resolved = ResolveRayDebugSBTEntryWrappedName(exportInfo, exportName, stateObjectIndex,
+                                                       shaderDatas);
       }
 
-      for(RtStateShaderData &stateShaderData : shaderDatas)
+      if(!resolved && !exportInfo.name.empty())
       {
-        if(IdentifierEqual(stateShaderData.identifier, (uint32_t *)originShaderIdentifier))
-        {
-          stateShaderData.name = exportName;
-          stateShaderData.stateObjectIndex = exportStateObjectIndex;
-        }
+        rdcwstr exportName = StringFormat::UTF82Wide(exportInfo.name);
+        resolved =
+            ResolveRayDebugSBTEntryName(properties, exportName, stateObjectIndex, shaderDatas);
+        if(!resolved)
+          ResolveRayDebugSBTEntryWrappedName(exportInfo, exportName, stateObjectIndex, shaderDatas);
       }
     }
-    exportStateObjectIndex++;
   }
 }
 
 static bool PrepareRayDebugSBT(WrappedID3D12Device *device, D3D12DebugManager *debugManager,
-                               WrappedID3D12StateObject *mainWrappedStateObject,
+                               const rdcarray<RtStateCacheData> &rtStateCacheDatas,
                                const PatchedRayDispatch &patchedRayDispatch,
                                const D3D12_DISPATCH_RAYS_DESC &lastDispatchRayDesc,
                                RayDebugPreparedSBT &preparedSBT)
@@ -1405,7 +1454,7 @@ static bool PrepareRayDebugSBT(WrappedID3D12Device *device, D3D12DebugManager *d
 
   CollectRayDebugSBTEntries(lastDispatchRayDesc, preparedSBT.layout,
                             (const byte *)patchedReadbackBufPtr, preparedSBT.shaderDatas);
-  ResolveRayDebugSBTEntryNames(mainWrappedStateObject, preparedSBT.shaderDatas);
+  ResolveRayDebugSBTEntryNames(rtStateCacheDatas, preparedSBT.shaderDatas);
 
   patchedReadBackBuf.Unmap();
 
@@ -1463,7 +1512,7 @@ bool D3D12Replay::InitPostRaytracingData(uint32_t eventId,
       GetRayDebugDispatchDesc(m_pDevice, eventId, patchedRayDispatch);
 
   RayDebugPreparedSBT preparedSBT;
-  if(!PrepareRayDebugSBT(m_pDevice, GetDebugManager(), mainWrappedStateObject, patchedRayDispatch,
+  if(!PrepareRayDebugSBT(m_pDevice, GetDebugManager(), rtStateCacheDatas, patchedRayDispatch,
                          lastDispatchRayDesc, preparedSBT))
     return false;
 
@@ -1555,6 +1604,18 @@ static bool IsDXILShaderModelAtLeast(const DXBC::DXBCContainer *dxbc, uint32_t m
          (dxbc->m_Version.Major == major && dxbc->m_Version.Minor >= minor);
 }
 
+static uint16_t EncodeRayDebugMinShaderModel(uint32_t major, uint32_t minor)
+{
+  return uint16_t((major << 4) | minor);
+}
+
+static void RaiseRayDebugRDATMinShaderModel(DXIL::RDATData::FunctionInfo2 &funcInfo,
+                                            uint32_t major, uint32_t minor)
+{
+  funcInfo.minShaderModel =
+      RDCMAX(funcInfo.minShaderModel, EncodeRayDebugMinShaderModel(major, minor));
+}
+
 static bool RayDebugFunctionHasTraceRayCall(const DXIL::Function *entryFunc)
 {
   using namespace DXIL;
@@ -1613,7 +1674,7 @@ static uint32_t GetNextRayDebugUAVResourceID(DXIL::Metadata *uavs)
   return resourceID;
 }
 
-static bool AddRayDebugShaderFlags(DXIL::ProgramEditor &editor, DXIL::Metadata *reslist)
+static bool AddRayDebugResourceMetadata(DXIL::ProgramEditor &editor, DXIL::Metadata *reslist)
 {
   using namespace DXIL;
 
@@ -1647,46 +1708,7 @@ static bool AddRayDebugShaderFlags(DXIL::ProgramEditor &editor, DXIL::Metadata *
     return false;
   }
 
-  Metadata *taglist = entry->children[4];
-  if(!taglist)
-    taglist = entry->children[4] = editor.CreateMetadata();
-
-  Metadata *shaderFlagsTag = NULL;
-  Metadata *shaderFlagsData = NULL;
-  size_t flagsIndex = 0;
-  for(size_t t = 0; taglist && t < taglist->children.size(); t += 2)
-  {
-    RDCASSERT(taglist->children[t]->isConstant);
-    if(cast<Constant>(taglist->children[t]->value)->getU32() == (uint32_t)ShaderEntryTag::ShaderFlags)
-    {
-      shaderFlagsTag = taglist->children[t];
-      shaderFlagsData = taglist->children[t + 1];
-      flagsIndex = t + 1;
-    }
-  }
-
-  uint32_t shaderFlagsValue = shaderFlagsData ? cast<Constant>(shaderFlagsData->value)->getU32() : 0U;
-  shaderFlagsValue |= 0x10;    // raw and structured buffers
-
-  Type *i64 = editor.CreateScalarType(Type::Int, 64);
-  shaderFlagsData =
-      editor.CreateConstantMetadata(editor.CreateConstant(Constant(i64, shaderFlagsValue)));
-
-  if(!shaderFlagsTag)
-    shaderFlagsTag = editor.CreateConstantMetadata((uint32_t)ShaderEntryTag::ShaderFlags);
-
-  if(flagsIndex)
-  {
-    taglist->children[flagsIndex] = shaderFlagsData;
-  }
-  else
-  {
-    taglist->children.insert(0, shaderFlagsTag);
-    taglist->children.insert(1, shaderFlagsData);
-  }
-
   entry->children[3] = reslist;
-  entry->children[4] = taglist;
 
   return true;
 }
@@ -2024,7 +2046,8 @@ static void AddDXILRtShaderRayHitStores(const DXBC::DXBCContainer *dxbc, uint32_
 
   RayDebugDXILUAV rayHitUAV = CreateRayDebugDXILUAV(
       editor, isShaderModel6_6OrAbove, space, "struct.RayInvocationData_xx",
-      {i32, i32, i32, i32, f32, f32, f32, f32, f32, f32, f32, f32, i32},
+      {i32, i32, i32, i32, f32, f32, f32, f32, f32, f32, f32, f32, i32, i32, i32, i32, i32,
+       i32},
       "class.RWStructuredBuffer<RayInvocationData_xx>",
       "\01?__g_RayInvocationBuf__@@3V?$RWStructuredBuffer@URayInvocationData_xx@@@@A",
       "__g_RayInvocationBuf__", "dx.op.createHandleForLib.struct.RayInvocationData_xx", 72U);
@@ -2088,10 +2111,11 @@ static void AddDXILRtShaderRayHitStores(const DXBC::DXBCContainer *dxbc, uint32_
     if(!IsRayHitInsertShaderType(funcInfo.type))
       continue;
 
-    if(!AddRayDebugShaderFlags(editor, rayHitUAV.reslist))
+    if(!AddRayDebugResourceMetadata(editor, rayHitUAV.reslist))
       return;
 
     AddRayDebugRDATUAVReference(funcInfo, rayHitUAV);
+    RaiseRayDebugRDATMinShaderModel(funcInfo, 6, 3);
 
     Function *entryFunc = editor.GetFunctionByPrefix(funcInfo.name);
 
@@ -2220,6 +2244,8 @@ static void AddDXILRtShaderRayHitStores(const DXBC::DXBCContainer *dxbc, uint32_
 
       if(isShaderModel6_5OrAbove)
       {
+        RaiseRayDebugRDATMinShaderModel(funcInfo, 6, 5);
+
         geometryIndexValue = editor.InsertInstruction(
             entryFunc, instructIndex,
             editor.CreateInstruction(geometryIndexFunc, DXOp::GeometryIndex, {}));
@@ -2295,7 +2321,8 @@ static void AddDXILRtShaderRayHitCounts(const DXBC::DXBCContainer *dxbc, uint32_
 
   RayDebugDXILUAV rayHitUAV = CreateRayDebugDXILUAV(
       editor, isShaderModel6_6OrAbove, space, "struct.RayInvocationData_xx",
-      {i32, i32, i32, i32, f32, f32, f32, f32, f32, f32, f32, f32, i32},
+      {i32, i32, i32, i32, f32, f32, f32, f32, f32, f32, f32, f32, i32, i32, i32, i32, i32,
+       i32},
       "class.RWStructuredBuffer<RayInvocationData_xx>",
       "\01?__g_RayInvocationBuf__@@3V?$RWStructuredBuffer@URayInvocationData_xx@@@@A",
       "__g_RayInvocationBuf__", "dx.op.createHandleForLib.struct.RayInvocationData_xx", 72U);
@@ -2312,7 +2339,7 @@ static void AddDXILRtShaderRayHitCounts(const DXBC::DXBCContainer *dxbc, uint32_
     if(!IsRayHitInsertShaderType(funcInfo.type))
       continue;
 
-    if(!AddRayDebugShaderFlags(editor, rayHitUAV.reslist))
+    if(!AddRayDebugResourceMetadata(editor, rayHitUAV.reslist))
       return;
 
     AddRayDebugRDATUAVReference(funcInfo, rayHitUAV);
@@ -2390,7 +2417,7 @@ static void AddDXILRtShaderRayCallCounts(const DXBC::DXBCContainer *dxbc, uint32
     if(!RayDebugFunctionHasTraceRayCall(entryFunc))
       continue;
 
-    if(!AddRayDebugShaderFlags(editor, rayCallUAV.reslist))
+    if(!AddRayDebugResourceMetadata(editor, rayCallUAV.reslist))
       return;
 
     AddRayDebugRDATUAVReference(funcInfo, rayCallUAV);
@@ -2486,10 +2513,11 @@ static void AddDXILRtShaderRayCallStores(const DXBC::DXBCContainer *dxbc, uint32
     if(!RayDebugFunctionHasTraceRayCall(entryFunc))
       continue;
 
-    if(!AddRayDebugShaderFlags(editor, rayCallUAV.reslist))
+    if(!AddRayDebugResourceMetadata(editor, rayCallUAV.reslist))
       return;
 
     AddRayDebugRDATUAVReference(funcInfo, rayCallUAV);
+    RaiseRayDebugRDATMinShaderModel(funcInfo, 6, 3);
 
     size_t instructIndex = 0;
 

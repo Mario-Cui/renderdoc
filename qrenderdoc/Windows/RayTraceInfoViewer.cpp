@@ -1,23 +1,44 @@
 #include "RayTraceInfoViewer.h"
 #include <QFontDatabase>
+#include <QHeaderView>
 #include <QStandardItemModel>
 #include <QVBoxLayout>
 #include "Code/QRDUtils.h"
 #include "shader_types.h"
 #include "ui_RayTraceInfoViewer.h"
 
+static QList<int> RayHitColumnWidths()
+{
+  return {92, 78, 78, 78, 86, 86, 86, 76, 76, 76, 70, 84, 68, 96, 86, 100, 104, 70};
+}
+
+static QList<int> RayCallColumnWidths()
+{
+  return {84, 78, 78, 78, 86, 86, 86, 76, 76, 76, 70, 70, 68, 96, 88, 76, 96};
+}
+
+static void ConfigureRayTraceResultsTable(RDTableView *table)
+{
+  table->setAlternatingRowColors(true);
+  table->setShowGrid(true);
+  table->setWordWrap(false);
+  table->setTextElideMode(Qt::ElideRight);
+  table->horizontalHeader()->setSectionsMovable(true);
+  table->horizontalHeader()->setStretchLastSection(false);
+  table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+  table->horizontalHeader()->setMinimumSectionSize(48);
+}
+
 class RayHitItemModel : public QAbstractItemModel
 {
 public:
-  RayHitItemModel(ICaptureContext &ctx, QObject *parent) : QAbstractItemModel(parent), m_Ctx(ctx)
+  RayHitItemModel(QObject *parent) : QAbstractItemModel(parent)
   {
     m_NumRows = 0;
   }
 
   void refresh(rdcarray<RayHitInfo> *invocations)
   {
-    emit beginResetModel();
-
     if(NULL == invocations)
     {
       m_Data = NULL;
@@ -27,8 +48,6 @@ public:
       m_Data = invocations;
     }
     resetFilter();
-
-    emit endResetModel();
   }
 
   bool isFilterChanged(int shaderTypeFilter, int dispatchXFilter, int dispatchYFilter,
@@ -49,11 +68,13 @@ public:
     m_dispatchYFilter = dispatchYFilter;
     m_dispatchZFilter = dispatchZFilter;
 
-    applyFilterAsync();
+    applyFilter();
   }
 
   void resetFilter()
   {
+    beginResetModel();
+
     m_shaderTypeFilter = -1;
     m_dispatchXFilter = -1;
     m_dispatchYFilter = -1;
@@ -66,14 +87,14 @@ public:
         m_FilteredIndices[i] = i;
 
       m_NumRows = (int)m_FilteredIndices.size();
-      emit beginResetModel();
-      emit endResetModel();
     }
     else
     {
       m_FilteredIndices.clear();
       m_NumRows = 0;
     }
+
+    endResetModel();
   }
 
   QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const override
@@ -115,10 +136,10 @@ public:
           case 10: return lit("tMin");
           case 11: return lit("tCurrent");
           case 12: return lit("Flags");
-          case 13: return lit("InstanceIndex");
-          case 14: return lit("InstanceId");
-          case 15: return lit("GeometryIndex");
-          case 16: return lit("PrimitiveIndex");
+          case 13: return lit("Instance Index");
+          case 14: return lit("Instance ID");
+          case 15: return lit("Geometry Index");
+          case 16: return lit("Primitive Index");
           case 17: return lit("HitKind");
         }
       }
@@ -183,14 +204,14 @@ public:
         case 1: return inv.dispatchX;
         case 2: return inv.dispatchY;
         case 3: return inv.dispatchZ;
-        case 4: return inv.originX;
-        case 5: return inv.originY;
-        case 6: return inv.originZ;
-        case 7: return inv.dirX;
-        case 8: return inv.dirY;
-        case 9: return inv.dirZ;
-        case 10: return inv.tMin;
-        case 11: return inv.tCurrent;
+        case 4: return Formatter::Format(inv.originX);
+        case 5: return Formatter::Format(inv.originY);
+        case 6: return Formatter::Format(inv.originZ);
+        case 7: return Formatter::Format(inv.dirX);
+        case 8: return Formatter::Format(inv.dirY);
+        case 9: return Formatter::Format(inv.dirZ);
+        case 10: return Formatter::Format(inv.tMin);
+        case 11: return Formatter::Format(inv.tCurrent);
         case 12: return inv.flags;
         case 13: return inv.instanceIndex;
         case 14: return inv.instanceId;
@@ -205,7 +226,7 @@ public:
   }
 
 private:
-  void applyFilterAsync()
+  void applyFilter()
   {
     if(!m_Data)
       return;
@@ -216,48 +237,37 @@ private:
     auto dispatchZFilter = m_dispatchZFilter;
     rdcarray<RayHitInfo> *data = m_Data;
 
-    bool done = false;
-    m_Ctx.Replay().AsyncInvoke([this, &done, data, shaderTypeFilter, dispatchXFilter, dispatchYFilter,
-                                dispatchZFilter](IReplayController *controller) -> void {
-      rdcarray<int> filtered;
+    rdcarray<int> filtered;
 
-      filtered.reserve(data->size() / 1000);    // estimate
+    filtered.reserve(data->size());
 
-      for(size_t i = 0; i < data->size(); i++)
-      {
-        const RayHitInfo &inv = data->at(i);
+    for(size_t i = 0; i < data->size(); i++)
+    {
+      const RayHitInfo &inv = data->at(i);
 
-        if(shaderTypeFilter != -1 && (int)inv.shaderType != shaderTypeFilter)
-          continue;
+      if(shaderTypeFilter != -1 && (int)inv.shaderType != shaderTypeFilter)
+        continue;
 
-        if(dispatchXFilter != -1 && (int)inv.dispatchX != dispatchXFilter)
-          continue;
+      if(dispatchXFilter != -1 && (int)inv.dispatchX != dispatchXFilter)
+        continue;
 
-        if(dispatchYFilter != -1 && (int)inv.dispatchY != dispatchYFilter)
-          continue;
+      if(dispatchYFilter != -1 && (int)inv.dispatchY != dispatchYFilter)
+        continue;
 
-        if(dispatchZFilter != -1 && (int)inv.dispatchZ != dispatchZFilter)
-          continue;
+      if(dispatchZFilter != -1 && (int)inv.dispatchZ != dispatchZFilter)
+        continue;
 
-        filtered.push_back(int(i));
-      }
+      filtered.push_back(int(i));
+    }
 
-      GUIInvoke::call(this, [this, filtered]() {
-        beginResetModel();
-        m_FilteredIndices = filtered;
-        m_NumRows = (int)m_FilteredIndices.size();
-        endResetModel();
-      });
-
-      done = true;
-    });
-
-    ShowProgressDialog(NULL, tr("filter invocation"), [&done]() -> bool { return done; });
+    beginResetModel();
+    m_FilteredIndices = filtered;
+    m_NumRows = (int)m_FilteredIndices.size();
+    endResetModel();
   }
 
 private:
-  ICaptureContext &m_Ctx;
-  rdcarray<RayHitInfo> *m_Data;
+  rdcarray<RayHitInfo> *m_Data = NULL;
   int m_NumRows;
   rdcarray<int> m_FilteredIndices;
   // filter condition
@@ -270,15 +280,13 @@ private:
 class RayCallItemModel : public QAbstractItemModel
 {
 public:
-  RayCallItemModel(ICaptureContext &ctx, QObject *parent) : QAbstractItemModel(parent), m_Ctx(ctx)
+  RayCallItemModel(QObject *parent) : QAbstractItemModel(parent)
   {
     m_NumRows = 0;
   }
 
   void refresh(rdcarray<RayCallInfo> *generateInfos)
   {
-    emit beginResetModel();
-
     if(NULL == generateInfos)
     {
       m_Data = NULL;
@@ -288,8 +296,6 @@ public:
       m_Data = generateInfos;
     }
     resetFilter();
-
-    emit endResetModel();
   }
 
   bool isFilterChanged(int shaderTypeFilter, int dispatchXFilter, int dispatchYFilter,
@@ -310,11 +316,13 @@ public:
     m_dispatchYFilter = dispatchYFilter;
     m_dispatchZFilter = dispatchZFilter;
 
-    applyFilterAsync();
+    applyFilter();
   }
 
   void resetFilter()
   {
+    beginResetModel();
+
     m_shaderTypeFilter = -1;
     m_dispatchXFilter = -1;
     m_dispatchYFilter = -1;
@@ -327,14 +335,14 @@ public:
         m_FilteredIndices[i] = i;
 
       m_NumRows = (int)m_FilteredIndices.size();
-      emit beginResetModel();
-      emit endResetModel();
     }
     else
     {
       m_FilteredIndices.clear();
       m_NumRows = 0;
     }
+
+    endResetModel();
   }
 
   QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const override
@@ -376,10 +384,10 @@ public:
           case 10: return lit("tMin");
           case 11: return lit("tMax");
           case 12: return lit("Flags");
-          case 13: return lit("hitGroupIndex");
-          case 14: return lit("hitGroupMul");
-          case 15: return lit("missIndex");
-          case 16: return lit("InstanceMask");
+          case 13: return lit("Hit Group Index");
+          case 14: return lit("Hit Group Mul");
+          case 15: return lit("Miss Index");
+          case 16: return lit("Instance Mask");
         }
       }
     }
@@ -437,14 +445,14 @@ public:
         case 1: return rayGenInfo.dispatchX;
         case 2: return rayGenInfo.dispatchY;
         case 3: return rayGenInfo.dispatchZ;
-        case 4: return rayGenInfo.originX;
-        case 5: return rayGenInfo.originY;
-        case 6: return rayGenInfo.originZ;
-        case 7: return rayGenInfo.dirX;
-        case 8: return rayGenInfo.dirY;
-        case 9: return rayGenInfo.dirZ;
-        case 10: return rayGenInfo.tMin;
-        case 11: return rayGenInfo.tMax;
+        case 4: return Formatter::Format(rayGenInfo.originX);
+        case 5: return Formatter::Format(rayGenInfo.originY);
+        case 6: return Formatter::Format(rayGenInfo.originZ);
+        case 7: return Formatter::Format(rayGenInfo.dirX);
+        case 8: return Formatter::Format(rayGenInfo.dirY);
+        case 9: return Formatter::Format(rayGenInfo.dirZ);
+        case 10: return Formatter::Format(rayGenInfo.tMin);
+        case 11: return Formatter::Format(rayGenInfo.tMax);
         case 12: return rayGenInfo.flags;
         case 13: return rayGenInfo.hitGroupIndex;
         case 14: return rayGenInfo.hitGroupMul;
@@ -462,7 +470,7 @@ public:
   }
 
 private:
-  void applyFilterAsync()
+  void applyFilter()
   {
     if(!m_Data)
       return;
@@ -473,48 +481,37 @@ private:
     auto dispatchZFilter = m_dispatchZFilter;
     rdcarray<RayCallInfo> *data = m_Data;
 
-    bool done = false;
-    m_Ctx.Replay().AsyncInvoke([this, &done, data, shaderTypeFilter, dispatchXFilter, dispatchYFilter,
-                                dispatchZFilter](IReplayController *controller) -> void {
-      rdcarray<int> filtered;
+    rdcarray<int> filtered;
 
-      filtered.reserve(data->size() / 1000);    // estimate
+    filtered.reserve(data->size());
 
-      for(size_t i = 0; i < data->size(); i++)
-      {
-        const RayCallInfo &rayGenInfo = data->at(i);
-        int32_t shaderType = rayGenInfo.maskAndShderType >> 8;
-        if(shaderTypeFilter != -1 && (int)shaderType != shaderTypeFilter)
-          continue;
+    for(size_t i = 0; i < data->size(); i++)
+    {
+      const RayCallInfo &rayGenInfo = data->at(i);
+      int32_t shaderType = rayGenInfo.maskAndShderType >> 8;
+      if(shaderTypeFilter != -1 && (int)shaderType != shaderTypeFilter)
+        continue;
 
-        if(dispatchXFilter != -1 && (int)rayGenInfo.dispatchX != dispatchXFilter)
-          continue;
+      if(dispatchXFilter != -1 && (int)rayGenInfo.dispatchX != dispatchXFilter)
+        continue;
 
-        if(dispatchYFilter != -1 && (int)rayGenInfo.dispatchY != dispatchYFilter)
-          continue;
+      if(dispatchYFilter != -1 && (int)rayGenInfo.dispatchY != dispatchYFilter)
+        continue;
 
-        if(dispatchZFilter != -1 && (int)rayGenInfo.dispatchZ != dispatchZFilter)
-          continue;
+      if(dispatchZFilter != -1 && (int)rayGenInfo.dispatchZ != dispatchZFilter)
+        continue;
 
-        filtered.push_back(int(i));
-      }
+      filtered.push_back(int(i));
+    }
 
-      GUIInvoke::call(this, [this, filtered]() {
-        beginResetModel();
-        m_FilteredIndices = filtered;
-        m_NumRows = (int)m_FilteredIndices.size();
-        endResetModel();
-      });
-
-      done = true;
-    });
-
-    ShowProgressDialog(NULL, tr("filter rayGen info"), [&done]() -> bool { return done; });
+    beginResetModel();
+    m_FilteredIndices = filtered;
+    m_NumRows = (int)m_FilteredIndices.size();
+    endResetModel();
   }
 
 private:
-  ICaptureContext &m_Ctx;
-  rdcarray<RayCallInfo> *m_Data;
+  rdcarray<RayCallInfo> *m_Data = NULL;
   int m_NumRows;
   rdcarray<int> m_FilteredIndices;
   // filter condition
@@ -554,30 +551,25 @@ RayTraceInfoViewer::RayTraceInfoViewer(ICaptureContext &ctx, QWidget *parent)
 
   ui->captureInvocations->setEnabled(m_Ctx.IsCaptureLoaded());
   ui->saveCSV->setEnabled(m_Ctx.IsCaptureLoaded());
-  ui->rayInfoType->addItem(lit("RayHitInfo"));
-  ui->rayInfoType->addItem(lit("RayCallInfo"));
+  ui->rayInfoType->addItem(lit("Ray Hits"));
+  ui->rayInfoType->addItem(lit("Trace Calls"));
 
   ui->shaderTypes->addItem(lit("All Shader Types"));
   ui->shaderTypes->addItem(lit("Intersection"));
   ui->shaderTypes->addItem(lit("AnyHit"));
-  ui->shaderTypes->addItem(lit("ClosesHit"));
+  ui->shaderTypes->addItem(lit("ClosestHit"));
   ui->shaderTypes->addItem(lit("Miss"));
   ui->shaderTypes->addItem(lit("Callable"));
 
-  m_Impl->rayHitModel = new RayHitItemModel(m_Ctx, this);
-  m_Impl->rayCallModel = new RayCallItemModel(m_Ctx, this);
+  m_Impl->rayHitModel = new RayHitItemModel(this);
+  m_Impl->rayCallModel = new RayCallItemModel(this);
 
   ui->counterResults->setModel(m_Impl->rayHitModel);
-  ui->counterResults->setColumnGroupRole(Qt::UserRole + 500);
-  ui->counterResults->horizontalHeader()->setSectionsMovable(true);
-  ui->counterResults->horizontalHeader()->setStretchLastSection(false);
-  // ui->counterResults->setCustomHeaderSizing(true);
-
   ui->counterResults->setFont(Formatter::PreferredFont());
-
+  ConfigureRayTraceResultsTable(ui->counterResults);
   ui->counterResults->setSortingEnabled(false);
-  ui->counterResults->sortByColumn(0, Qt::AscendingOrder);
-  ui->counterResults->horizontalHeader()->reset();
+  ui->counterResults->setColumnWidths(RayHitColumnWidths());
+
   m_Ctx.AddCaptureViewer(this);
   m_Impl->rayHitModel->refresh(&m_Impl->rayHitInfos);
   setupConnections();
@@ -602,10 +594,11 @@ void RayTraceInfoViewer::setupConnections()
               this->ui->shaderTypes->addItem(lit("All Shader Types"));
               this->ui->shaderTypes->addItem(lit("Intersection"));
               this->ui->shaderTypes->addItem(lit("AnyHit"));
-              this->ui->shaderTypes->addItem(lit("ClosesHit"));
+              this->ui->shaderTypes->addItem(lit("ClosestHit"));
               this->ui->shaderTypes->addItem(lit("Miss"));
               this->ui->shaderTypes->addItem(lit("Callable"));
               this->ui->counterResults->setModel(this->m_Impl->rayHitModel);
+              this->ui->counterResults->setColumnWidths(RayHitColumnWidths());
             }
             else if(index == 1)
             {
@@ -613,9 +606,10 @@ void RayTraceInfoViewer::setupConnections()
               this->ui->shaderTypes->clear();
               this->ui->shaderTypes->addItem(lit("All Shader Types"));
               this->ui->shaderTypes->addItem(lit("RayGen"));
-              this->ui->shaderTypes->addItem(lit("ClosesHit"));
+              this->ui->shaderTypes->addItem(lit("ClosestHit"));
               this->ui->shaderTypes->addItem(lit("Miss"));
               this->ui->counterResults->setModel(this->m_Impl->rayCallModel);
+              this->ui->counterResults->setColumnWidths(RayCallColumnWidths());
             }
           });
 
@@ -699,6 +693,9 @@ void RayTraceInfoViewer::setupConnections()
   connect(ui->dispatchXEdit, &QLineEdit::returnPressed, this, onDispatchFilterChanged);
   connect(ui->dispatchYEdit, &QLineEdit::returnPressed, this, onDispatchFilterChanged);
   connect(ui->dispatchZEdit, &QLineEdit::returnPressed, this, onDispatchFilterChanged);
+  connect(ui->dispatchXEdit, &QLineEdit::editingFinished, this, onDispatchFilterChanged);
+  connect(ui->dispatchYEdit, &QLineEdit::editingFinished, this, onDispatchFilterChanged);
+  connect(ui->dispatchZEdit, &QLineEdit::editingFinished, this, onDispatchFilterChanged);
 
   auto onCaptureInvocationClicked = [this]() {
     bool done = false;
@@ -718,6 +715,9 @@ void RayTraceInfoViewer::setupConnections()
         GUIInvoke::call(this, [this]() {
           this->m_Impl->rayHitModel->refresh(&this->m_Impl->rayHitInfos);
           this->m_Impl->rayCallModel->refresh(&this->m_Impl->rayCallInfos);
+          this->ui->counterResults->setColumnWidths(this->m_Impl->showRayHitInfo
+                                                        ? RayHitColumnWidths()
+                                                        : RayCallColumnWidths());
         });
       }
       done = true;
@@ -797,10 +797,18 @@ void RayTraceInfoViewer::setupConnections()
 
 void RayTraceInfoViewer::OnCaptureLoaded()
 {
+  ui->captureInvocations->setEnabled(IsDispatchRay());
+  ui->saveCSV->setEnabled(IsDispatchRay());
 }
 
 void RayTraceInfoViewer::OnCaptureClosed()
 {
+  ui->captureInvocations->setEnabled(false);
+  ui->saveCSV->setEnabled(false);
+  m_Impl->rayHitInfos.clear();
+  m_Impl->rayCallInfos.clear();
+  m_Impl->rayHitModel->refresh(&m_Impl->rayHitInfos);
+  m_Impl->rayCallModel->refresh(&m_Impl->rayCallInfos);
 }
 
 void RayTraceInfoViewer::OnSelectedEventChanged(uint32_t eventId)
@@ -817,7 +825,7 @@ void RayTraceInfoViewer::OnEventChanged(uint32_t eventId)
   else
   {
     ui->captureInvocations->setDisabled(true);
-    ui->saveCSV->setDisabled(false);
+    ui->saveCSV->setDisabled(true);
   }
 }
 

@@ -15,7 +15,7 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <property name="spacing">
-    <number>0</number>
+    <number>3</number>
    </property>
    <property name="leftMargin">
     <number>3</number>
@@ -32,7 +32,7 @@
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout">
      <property name="spacing">
-      <number>0</number>
+      <number>4</number>
      </property>
      <property name="sizeConstraint">
       <enum>QLayout::SetDefaultConstraint</enum>
@@ -46,36 +46,39 @@
      <item>
       <widget class="QFrame" name="frame">
        <property name="frameShape">
-        <enum>QFrame::Panel</enum>
+        <enum>QFrame::StyledPanel</enum>
        </property>
        <property name="frameShadow">
-        <enum>QFrame::Raised</enum>
+        <enum>QFrame::Plain</enum>
        </property>
        <layout class="QHBoxLayout" name="horizontalLayout_2">
         <property name="spacing">
-         <number>2</number>
+         <number>4</number>
         </property>
         <property name="leftMargin">
-         <number>6</number>
+         <number>5</number>
         </property>
         <property name="topMargin">
-         <number>2</number>
+         <number>3</number>
         </property>
         <property name="rightMargin">
-         <number>6</number>
+         <number>5</number>
         </property>
         <property name="bottomMargin">
-         <number>2</number>
+         <number>3</number>
         </property>
         <item>
          <widget class="QToolButton" name="captureInvocations">
+          <property name="toolTip">
+           <string>Capture ray tracing debug data for the current dispatch</string>
+          </property>
           <property name="text">
-           <string>CaptureInvocations</string>
+           <string>Capture</string>
+          </property>
+          <property name="autoRaise">
+           <bool>false</bool>
           </property>
          </widget>
-        </item>
-        <item>
-         <widget class="QComboBox" name="rayInfoType"/>
         </item>
         <item>
          <widget class="Line" name="line">
@@ -85,7 +88,21 @@
          </widget>
         </item>
         <item>
-         <widget class="QComboBox" name="shaderTypes"/>
+         <widget class="QLabel" name="rayInfoTypeLabel">
+          <property name="text">
+           <string>View:</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="rayInfoType">
+          <property name="minimumSize">
+           <size>
+            <width>120</width>
+            <height>0</height>
+           </size>
+          </property>
+         </widget>
         </item>
         <item>
          <widget class="Line" name="line_2">
@@ -95,14 +112,41 @@
          </widget>
         </item>
         <item>
+         <widget class="QLabel" name="shaderTypesLabel">
+          <property name="text">
+           <string>Shader:</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="shaderTypes">
+          <property name="minimumSize">
+           <size>
+            <width>140</width>
+            <height>0</height>
+           </size>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="Line" name="line_3">
+          <property name="orientation">
+           <enum>Qt::Vertical</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
          <widget class="QLabel" name="indexFilter">
           <property name="text">
-           <string>IndexFilter</string>
+           <string>Dispatch:</string>
           </property>
          </widget>
         </item>
         <item>
          <widget class="QLineEdit" name="dispatchXEdit">
+          <property name="toolTip">
+           <string>Filter by dispatch X coordinate</string>
+          </property>
           <property name="maximumSize">
            <size>
             <width>60</width>
@@ -113,6 +157,9 @@
         </item>
         <item>
          <widget class="QLineEdit" name="dispatchYEdit">
+          <property name="toolTip">
+           <string>Filter by dispatch Y coordinate</string>
+          </property>
           <property name="maximumSize">
            <size>
             <width>60</width>
@@ -123,6 +170,9 @@
         </item>
         <item>
          <widget class="QLineEdit" name="dispatchZEdit">
+          <property name="toolTip">
+           <string>Filter by dispatch Z coordinate</string>
+          </property>
           <property name="maximumSize">
            <size>
             <width>60</width>
@@ -132,7 +182,7 @@
          </widget>
         </item>
         <item>
-         <widget class="Line" name="line_3">
+         <widget class="Line" name="line_4">
           <property name="orientation">
            <enum>Qt::Vertical</enum>
           </property>
@@ -164,6 +214,9 @@
        <zorder>dispatchXEdit</zorder>
        <zorder>dispatchYEdit</zorder>
        <zorder>rayInfoType</zorder>
+       <zorder>rayInfoTypeLabel</zorder>
+       <zorder>shaderTypesLabel</zorder>
+       <zorder>line_4</zorder>
       </widget>
      </item>
      <item>
@@ -183,8 +236,14 @@
    </item>
    <item>
     <widget class="RDTableView" name="counterResults">
+     <property name="alternatingRowColors">
+      <bool>true</bool>
+     </property>
      <property name="horizontalScrollBarPolicy">
       <enum>Qt::ScrollBarAlwaysOn</enum>
+     </property>
+     <property name="showGrid">
+      <bool>true</bool>
      </property>
      <property name="selectionMode">
       <enum>QAbstractItemView::ExtendedSelection</enum>

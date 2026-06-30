@@ -1642,6 +1642,66 @@ void DoSerialise(SerialiserType &ser, D3D12Pipe::RootSignature &el)
 }
 
 template <typename SerialiserType>
+void DoSerialise(SerialiserType &ser, D3D12Pipe::RaytracingShader &el)
+{
+  SERIALISE_MEMBER(name);
+  SERIALISE_MEMBER(stage);
+  SERIALISE_MEMBER(resourceId);
+  // don't serialise reflection, just set it to NULL. See the definition of SERIALISE_MEMBER_DUMMY
+  SERIALISE_MEMBER_OPT_EMPTY(reflection);
+  SERIALISE_MEMBER(entryPoint);
+
+  SIZE_CHECK(72);
+}
+
+template <typename SerialiserType>
+void DoSerialise(SerialiserType &ser, D3D12Pipe::RaytracingHitGroup &el)
+{
+  SERIALISE_MEMBER(name);
+  SERIALISE_MEMBER(proceduralPrimitive);
+  SERIALISE_MEMBER(closestHit);
+  SERIALISE_MEMBER(anyHit);
+  SERIALISE_MEMBER(intersection);
+
+  SIZE_CHECK(104);
+}
+
+template <typename SerialiserType>
+void DoSerialise(SerialiserType &ser, D3D12Pipe::RaytracingLocalRootSignature &el)
+{
+  SERIALISE_MEMBER(rootSignature);
+  SERIALISE_MEMBER(exports);
+
+  SIZE_CHECK(80);
+}
+
+template <typename SerialiserType>
+void DoSerialise(SerialiserType &ser, D3D12Pipe::RaytracingShaderConfig &el)
+{
+  SERIALISE_MEMBER(maxPayloadSize);
+  SERIALISE_MEMBER(maxAttributeSize);
+  SERIALISE_MEMBER(exports);
+
+  SIZE_CHECK(32);
+}
+
+template <typename SerialiserType>
+void DoSerialise(SerialiserType &ser, D3D12Pipe::RaytracingState &el)
+{
+  SERIALISE_MEMBER(stateObjectResourceId);
+  SERIALISE_MEMBER(stateObjectFlags);
+  SERIALISE_MEMBER(globalRootSignature);
+  SERIALISE_MEMBER(localRootSignatures);
+  SERIALISE_MEMBER(shaderConfigs);
+  SERIALISE_MEMBER(maxTraceRecursionDepth);
+  SERIALISE_MEMBER(pipelineFlags);
+  SERIALISE_MEMBER(shaders);
+  SERIALISE_MEMBER(hitGroups);
+
+  SIZE_CHECK(176);
+}
+
+template <typename SerialiserType>
 void DoSerialise(SerialiserType &ser, D3D12Pipe::Predication &el)
 {
   SERIALISE_MEMBER(resourceId);
@@ -1669,6 +1729,8 @@ void DoSerialise(SerialiserType &ser, D3D12Pipe::State &el)
   SERIALISE_MEMBER(ampShader);
   SERIALISE_MEMBER(meshShader);
 
+  SERIALISE_MEMBER(raytracing);
+
   SERIALISE_MEMBER(streamOut);
 
   SERIALISE_MEMBER(rasterizer);
@@ -1679,7 +1741,7 @@ void DoSerialise(SerialiserType &ser, D3D12Pipe::State &el)
 
   SERIALISE_MEMBER(resourceStates);
 
-  SIZE_CHECK(792);
+  SIZE_CHECK(968);
 }
 
 #pragma endregion D3D12 pipeline state

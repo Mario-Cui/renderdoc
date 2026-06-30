@@ -452,12 +452,8 @@ BufferDescription D3D12Replay::GetBuffer(ResourceId id)
 
   for(size_t i = 0; i < usage.size(); i++)
   {
-    if(usage[i].usage == ResourceUsage::VS_RWResource ||
-       usage[i].usage == ResourceUsage::HS_RWResource ||
-       usage[i].usage == ResourceUsage::DS_RWResource ||
-       usage[i].usage == ResourceUsage::GS_RWResource ||
-       usage[i].usage == ResourceUsage::PS_RWResource ||
-       usage[i].usage == ResourceUsage::CS_RWResource)
+    if((usage[i].usage >= ResourceUsage::VS_RWResource &&
+        usage[i].usage <= ResourceUsage::All_RWResource))
       ret.creationFlags |= BufferCategory::ReadWrite;
     else if(usage[i].usage == ResourceUsage::VertexBuffer)
       ret.creationFlags |= BufferCategory::Vertex;
@@ -788,7 +784,11 @@ void D3D12Replay::FreeCustomShader(ResourceId id)
 
 rdcarray<EventUsage> D3D12Replay::GetUsage(ResourceId id)
 {
-  if(m_pDevice->GetResourceList().find(id) == m_pDevice->GetResourceList().end())
+  D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
+
+  id = rm->GetUnreplacedID(id);
+
+  if(!rm->HasResource(id))
   {
     return {EventUsage(0, ResourceUsage::Unused)};
   }

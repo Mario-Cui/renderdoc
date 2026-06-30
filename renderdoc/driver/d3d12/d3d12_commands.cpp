@@ -2061,6 +2061,8 @@ void D3D12CommandData::AddResourceUsage(D3D12ActionTreeNode &actionNode, Resourc
   if(id == ResourceId())
     return;
 
+  id = m_pDevice->GetResourceManager()->GetUnreplacedID(id);
+
   actionNode.resourceUsage.push_back(make_rdcpair(id, EventUsage(EID, usage)));
 }
 
@@ -2252,13 +2254,117 @@ void D3D12CommandData::AddUsageForBindInRootSig(const D3D12RenderState &state,
   }
 }
 
+void D3D12CommandData::AddUsageForAllBindsInRootSig(
+    D3D12ActionTreeNode &actionNode, const D3D12RenderState::RootSignature *rootsig)
+{
+  static bool hugeRangeWarned = false;
+
+  if(rootsig == NULL || rootsig->rootsig == ResourceId())
+    return;
+
+  uint32_t eid = actionNode.action.eventId;
+
+  D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
+  WrappedID3D12RootSignature *sig = rm->GetResAs<WrappedID3D12RootSignature>(rootsig->rootsig);
+  if(sig == NULL)
+    return;
+
+  for(size_t rootEl = 0; rootEl < sig->sig.Parameters.size(); rootEl++)
+  {
+    if(rootEl >= rootsig->sigelems.size())
+      break;
+
+    const D3D12RootSignatureParameter &p = sig->sig.Parameters[rootEl];
+    const D3D12RenderState::SignatureElement &el = rootsig->sigelems[rootEl];
+
+    if(p.ParameterType == D3D12_ROOT_PARAMETER_TYPE_CBV && el.type == eRootCBV)
+    {
+      AddResourceUsage(actionNode, el.id, eid, ResourceUsage::All_Constants);
+    }
+    else if(p.ParameterType == D3D12_ROOT_PARAMETER_TYPE_SRV && el.type == eRootSRV)
+    {
+      AddResourceUsage(actionNode, el.id, eid, ResourceUsage::All_Resource);
+    }
+    else if(p.ParameterType == D3D12_ROOT_PARAMETER_TYPE_UAV && el.type == eRootUAV)
+    {
+      AddResourceUsage(actionNode, el.id, eid, ResourceUsage::All_RWResource);
+    }
+    else if(p.ParameterType == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE && el.type == eRootTable)
+    {
+      WrappedID3D12DescriptorHeap *heap = rm->GetResAs<WrappedID3D12DescriptorHeap>(el.id);
+      if(heap == NULL)
+        continue;
+
+      UINT prevTableOffset = 0;
+
+      for(size_t r = 0; r < p.ranges.size(); r++)
+      {
+        const D3D12_DESCRIPTOR_RANGE1 &range = p.ranges[r];
+
+        UINT offset = range.OffsetInDescriptorsFromTableStart;
+        if(range.OffsetInDescriptorsFromTableStart == D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND)
+          offset = prevTableOffset;
+
+        UINT num = range.NumDescriptors;
+        UINT descriptorOffset = UINT(el.offset) + offset;
+        if(descriptorOffset >= heap->GetNumDescriptors())
+          continue;
+
+        if(num == UINT_MAX)
+          num = heap->GetNumDescriptors() - descriptorOffset;
+
+        prevTableOffset = offset + num;
+
+        if(num > 1000)
+        {
+          if(!hugeRangeWarned)
+            RDCWARN("Skipping large, most likely 'bindless', descriptor range");
+          hugeRangeWarned = true;
+
+          continue;
+        }
+
+        D3D12Descriptor *desc = (D3D12Descriptor *)heap->GetCPUDescriptorHandleForHeapStart().ptr;
+        D3D12Descriptor *end = desc + heap->GetNumDescriptors();
+        desc += descriptorOffset;
+
+        ResourceUsage usage = ResourceUsage::Unused;
+        if(range.RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_CBV)
+          usage = ResourceUsage::All_Constants;
+        else if(range.RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_SRV)
+          usage = ResourceUsage::All_Resource;
+        else if(range.RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_UAV)
+          usage = ResourceUsage::All_RWResource;
+        else
+          continue;
+
+        for(UINT i = 0; i < num; i++)
+        {
+          if(desc >= end)
+            break;
+
+          ResourceId id;
+          if(range.RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_CBV)
+            id = WrappedID3D12Resource::GetResIDFromAddr(desc->GetCBV().BufferLocation);
+          else
+            id = desc->GetResResourceId();
+
+          AddResourceUsage(actionNode, id, eid, usage);
+          desc++;
+        }
+      }
+    }
+  }
+}
+
 void D3D12CommandData::AddUsage(const D3D12RenderState &state, D3D12ActionTreeNode &actionNode)
 {
   ActionDescription &a = actionNode.action;
 
   uint32_t eid = a.eventId;
 
-  ActionFlags DrawMask = ActionFlags::Drawcall | ActionFlags::MeshDispatch | ActionFlags::Dispatch;
+  ActionFlags DrawMask = ActionFlags::Drawcall | ActionFlags::MeshDispatch | ActionFlags::Dispatch |
+                         ActionFlags::DispatchRay;
   if(!(a.flags & DrawMask))
     return;
 
@@ -2273,7 +2379,19 @@ void D3D12CommandData::AddUsage(const D3D12RenderState &state, D3D12ActionTreeNo
 
   const ShaderReflection *refls[NumShaderStages] = {};
 
-  if((a.flags & ActionFlags::Dispatch) && state.compute.rootsig != ResourceId())
+  if(a.flags & ActionFlags::DispatchRay)
+  {
+    AddResourceUsage(actionNode, state.stateobj, eid, ResourceUsage::All_Resource);
+
+    if(state.compute.rootsig != ResourceId())
+    {
+      rootsig = &state.compute;
+
+      AddResourceUsage(actionNode, state.compute.rootsig, eid, ResourceUsage::All_Resource);
+      AddUsageForAllBindsInRootSig(actionNode, rootsig);
+    }
+  }
+  else if((a.flags & ActionFlags::Dispatch) && state.compute.rootsig != ResourceId())
   {
     rootsig = &state.compute;
 

@@ -32,17 +32,21 @@
 #include "driver/ihv/nv/nv_aftermath.h"
 #include "driver/ihv/nv/nv_d3d12_counters.h"
 #include "driver/shaders/dxbc/dxbc_common.h"
+#include "driver/shaders/dxbc/dxbc_reflect.h"
+#include "driver/shaders/dxil/dxil_metadata.h"
 #include "maths/camera.h"
 #include "maths/formatpacking.h"
 #include "maths/matrix.h"
 #include "replay/dummy_driver.h"
 #include "serialise/rdcfile.h"
 #include "strings/string_utils.h"
+#include "d3d12_command_list.h"
 #include "d3d12_command_queue.h"
 #include "d3d12_debug.h"
 #include "d3d12_device.h"
 #include "d3d12_hooks.h"
 #include "d3d12_resources.h"
+#include "d3d12_rootsig.h"
 #include "d3d12_shader_cache.h"
 
 #include "data/hlsl/hlsl_cbuffers.h"
@@ -69,9 +73,19 @@ D3D12Replay::D3D12Replay(WrappedID3D12Device *d)
   m_HighlightCache.driver = this;
 }
 
+void D3D12Replay::ClearRaytracingReflectionCache()
+{
+  for(auto it = m_RaytracingReflections.begin(); it != m_RaytracingReflections.end(); ++it)
+    SAFE_DELETE(it->second);
+
+  m_RaytracingReflections.clear();
+}
+
 void D3D12Replay::Shutdown()
 {
   bool apiValidation = m_pDevice->GetReplayOptions().apiValidation;
+
+  ClearRaytracingReflectionCache();
 
   for(size_t i = 0; i < m_ProxyResources.size(); i++)
     m_ProxyResources[i]->Release();
@@ -536,6 +550,18 @@ rdcarray<ShaderEntryPoint> D3D12Replay::GetShaderEntryPoints(ResourceId shader)
 
   WrappedID3D12Shader *sh = (WrappedID3D12Shader *)res;
 
+  D3D12_SHADER_BYTECODE desc = sh->GetDesc();
+  if(desc.pShaderBytecode && desc.BytecodeLength > 0)
+  {
+    DXBC::DXBCContainer container(
+        bytebuf((byte *)desc.pShaderBytecode, desc.BytecodeLength), rdcstr(), GraphicsAPI::D3D12,
+        ~0U, ~0U);
+
+    rdcarray<ShaderEntryPoint> entries = container.GetEntryPoints();
+    if(!entries.empty())
+      return entries;
+  }
+
   const ShaderReflection &ret = sh->GetDetails();
 
   return {{"main", ret.stage}};
@@ -544,12 +570,44 @@ rdcarray<ShaderEntryPoint> D3D12Replay::GetShaderEntryPoints(ResourceId shader)
 const ShaderReflection *D3D12Replay::GetShader(ResourceId pipeline, ResourceId shader,
                                                ShaderEntryPoint entry)
 {
+  (void)pipeline;
+
   WrappedID3D12Shader *sh = m_pDevice->GetResourceManager()->GetResAs<WrappedID3D12Shader>(shader);
 
-  if(sh)
+  if(sh == NULL)
+    return NULL;
+
+  const bool raytracingStage =
+      entry.stage == ShaderStage::RayGen || entry.stage == ShaderStage::Intersection ||
+      entry.stage == ShaderStage::AnyHit || entry.stage == ShaderStage::ClosestHit ||
+      entry.stage == ShaderStage::Miss || entry.stage == ShaderStage::Callable;
+
+  if(!raytracingStage || entry.name.empty())
     return &sh->GetDetails();
 
-  return NULL;
+  RaytracingReflectionKey key;
+  key.shader = shader;
+  key.entry = entry;
+
+  auto it = m_RaytracingReflections.find(key);
+  if(it != m_RaytracingReflections.end())
+    return it->second;
+
+  D3D12_SHADER_BYTECODE desc = sh->GetDesc();
+  if(desc.pShaderBytecode == NULL || desc.BytecodeLength == 0)
+    return NULL;
+
+  DXBC::DXBCContainer container(
+      bytebuf((byte *)desc.pShaderBytecode, desc.BytecodeLength), rdcstr(), GraphicsAPI::D3D12,
+      ~0U, ~0U);
+
+  ShaderReflection *reflection = new ShaderReflection;
+  MakeShaderReflection(&container, entry, reflection);
+  reflection->resourceId = shader;
+
+  m_RaytracingReflections[key] = reflection;
+
+  return reflection;
 }
 
 rdcarray<rdcstr> D3D12Replay::GetDisassemblyTargets(bool withPipeline)
@@ -1187,6 +1245,1374 @@ void D3D12Replay::FillRootDescriptor(Descriptor &dst, const D3D12RenderState::Si
   }
 }
 
+void D3D12Replay::FillRootSignature(
+    D3D12Pipe::RootSignature &dst, ResourceId resourceId, const D3D12RootSignature &srcSig,
+    const rdcarray<D3D12RenderState::SignatureElement> *rootElems)
+{
+  dst.resourceId = resourceId;
+  dst.parameters.clear();
+  dst.staticSamplers.clear();
+
+  dst.parameters.reserve(srcSig.Parameters.size());
+  for(size_t i = 0; i < srcSig.Parameters.size(); i++)
+  {
+    const D3D12RootSignatureParameter &src = srcSig.Parameters[i];
+    D3D12Pipe::RootParam param;
+    param.visibility = ConvertVisibility(src.ShaderVisibility);
+
+    const D3D12RenderState::SignatureElement *boundElem =
+        (rootElems && i < rootElems->size()) ? &(*rootElems)[i] : NULL;
+
+    switch(src.ParameterType)
+    {
+      case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+      {
+        if(boundElem)
+        {
+          param.heap = boundElem->id;
+          param.heapByteOffset = (uint32_t)boundElem->offset;
+        }
+
+        UINT prevTableOffset = 0;
+
+        param.tableRanges.reserve(src.DescriptorTable.NumDescriptorRanges);
+        for(UINT r = 0; r < src.DescriptorTable.NumDescriptorRanges; r++)
+        {
+          const D3D12_DESCRIPTOR_RANGE1 &srcRange = src.DescriptorTable.pDescriptorRanges[r];
+
+          D3D12Pipe::RootTableRange range;
+
+          switch(srcRange.RangeType)
+          {
+            case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
+              range.category = DescriptorCategory::ConstantBlock;
+              break;
+            case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
+              range.category = DescriptorCategory::Sampler;
+              break;
+            case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
+              range.category = DescriptorCategory::ReadOnlyResource;
+              break;
+            case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
+              range.category = DescriptorCategory::ReadWriteResource;
+              break;
+          }
+
+          UINT offset = srcRange.OffsetInDescriptorsFromTableStart;
+
+          if(srcRange.OffsetInDescriptorsFromTableStart == D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND)
+          {
+            range.appended = true;
+            offset = prevTableOffset;
+          }
+
+          range.space = srcRange.RegisterSpace;
+          range.baseRegister = srcRange.BaseShaderRegister;
+          range.count = srcRange.NumDescriptors;
+          range.tableByteOffset = offset;
+
+          prevTableOffset = offset + srcRange.NumDescriptors;
+
+          param.tableRanges.push_back(range);
+        }
+
+        break;
+      }
+      case D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+      {
+        param.constants.resize(src.Constants.Num32BitValues * 4);
+        param.space = src.Constants.RegisterSpace;
+        param.reg = src.Constants.ShaderRegister;
+
+        if(boundElem)
+        {
+          memcpy(param.constants.data(), boundElem->constants.data(),
+                 RDCMIN(boundElem->constants.byteSize(), param.constants.byteSize()));
+        }
+
+        break;
+      }
+      case D3D12_ROOT_PARAMETER_TYPE_CBV:
+      {
+        param.descriptor.type = DescriptorType::ConstantBuffer;
+        param.space = src.Descriptor.RegisterSpace;
+        param.reg = src.Descriptor.ShaderRegister;
+
+        if(boundElem)
+          FillRootDescriptor(param.descriptor, *boundElem);
+        break;
+      }
+      case D3D12_ROOT_PARAMETER_TYPE_SRV:
+      {
+        param.descriptor.type = DescriptorType::Buffer;
+        param.space = src.Descriptor.RegisterSpace;
+        param.reg = src.Descriptor.ShaderRegister;
+
+        if(boundElem)
+          FillRootDescriptor(param.descriptor, *boundElem);
+        break;
+      }
+      case D3D12_ROOT_PARAMETER_TYPE_UAV:
+      {
+        param.descriptor.type = DescriptorType::ReadWriteBuffer;
+        param.space = src.Descriptor.RegisterSpace;
+        param.reg = src.Descriptor.ShaderRegister;
+
+        if(boundElem)
+          FillRootDescriptor(param.descriptor, *boundElem);
+        break;
+      }
+    }
+
+    dst.parameters.push_back(std::move(param));
+  }
+
+  dst.staticSamplers.reserve(srcSig.StaticSamplers.size());
+  for(const D3D12_STATIC_SAMPLER_DESC1 &src : srcSig.StaticSamplers)
+  {
+    D3D12Pipe::StaticSampler sampler;
+    sampler.visibility = ConvertVisibility(src.ShaderVisibility);
+
+    sampler.space = src.RegisterSpace;
+    sampler.reg = src.ShaderRegister;
+
+    FillSamplerDescriptor(sampler.descriptor, ConvertStaticSampler(src));
+
+    dst.staticSamplers.push_back(std::move(sampler));
+  }
+}
+
+static rdcstr GetExportName(LPCWSTR name)
+{
+  return name ? StringFormat::Wide2UTF8(name) : rdcstr();
+}
+
+static int32_t FindRaytracingShader(const rdcarray<D3D12Pipe::RaytracingShader> &shaders,
+                                    const rdcstr &name)
+{
+  for(size_t i = 0; i < shaders.size(); i++)
+    if(shaders[i].name == name)
+      return (int32_t)i;
+
+  return -1;
+}
+
+static int32_t FindRaytracingHitGroup(const rdcarray<D3D12Pipe::RaytracingHitGroup> &hitGroups,
+                                      const rdcstr &name)
+{
+  for(size_t i = 0; i < hitGroups.size(); i++)
+    if(hitGroups[i].name == name)
+      return (int32_t)i;
+
+  return -1;
+}
+
+static void UpsertRaytracingShader(rdcarray<D3D12Pipe::RaytracingShader> &shaders,
+                                   const D3D12Pipe::RaytracingShader &shader)
+{
+  int32_t idx = FindRaytracingShader(shaders, shader.name);
+  if(idx >= 0)
+    shaders[(size_t)idx] = shader;
+  else
+    shaders.push_back(shader);
+}
+
+static void UpsertRaytracingHitGroup(rdcarray<D3D12Pipe::RaytracingHitGroup> &hitGroups,
+                                     const D3D12Pipe::RaytracingHitGroup &hitGroup)
+{
+  int32_t idx = FindRaytracingHitGroup(hitGroups, hitGroup.name);
+  if(idx >= 0)
+    hitGroups[(size_t)idx] = hitGroup;
+  else
+    hitGroups.push_back(hitGroup);
+}
+
+static rdcarray<ShaderEntryPoint> GetRaytracingEntryPoints(const D3D12_SHADER_BYTECODE &byteCode)
+{
+  rdcarray<ShaderEntryPoint> entries;
+
+  if(byteCode.pShaderBytecode == NULL || byteCode.BytecodeLength == 0)
+    return entries;
+
+  size_t rdatSize = 0;
+  const byte *rdatData =
+      DXBC::DXBCContainer::FindChunk((const byte *)byteCode.pShaderBytecode, byteCode.BytecodeLength,
+                                     DXBC::FOURCC_RDAT, rdatSize);
+
+  DXIL::RDATData rdat;
+  if(DXBC::DXBCContainer::GetRuntimeData(rdatData, rdatSize, rdat))
+    return rdat.GetEntryPoints();
+
+  DXBC::DXBCContainer container(
+      bytebuf((byte *)byteCode.pShaderBytecode, byteCode.BytecodeLength), rdcstr(),
+      GraphicsAPI::D3D12, ~0U, ~0U);
+  return container.GetEntryPoints();
+}
+
+static bool GetRaytracingRuntimeData(const D3D12_SHADER_BYTECODE &byteCode, DXIL::RDATData &rdat)
+{
+  if(byteCode.pShaderBytecode == NULL || byteCode.BytecodeLength == 0)
+    return false;
+
+  size_t rdatSize = 0;
+  const byte *rdatData =
+      DXBC::DXBCContainer::FindChunk((const byte *)byteCode.pShaderBytecode, byteCode.BytecodeLength,
+                                     DXBC::FOURCC_RDAT, rdatSize);
+
+  return DXBC::DXBCContainer::GetRuntimeData(rdatData, rdatSize, rdat);
+}
+
+static ShaderStage FindRaytracingEntryPointStage(const rdcarray<ShaderEntryPoint> &entries,
+                                                 const rdcstr &entryPoint,
+                                                 const rdcstr &fallbackName)
+{
+  for(const ShaderEntryPoint &entry : entries)
+    if(entry.name == entryPoint)
+      return entry.stage;
+
+  for(const ShaderEntryPoint &entry : entries)
+    if(entry.name == fallbackName)
+      return entry.stage;
+
+  return ShaderStage::Count;
+}
+
+static rdcarray<rdcstr> GetAssociationExports(UINT numExports, LPCWSTR *exports)
+{
+  rdcarray<rdcstr> ret;
+
+  if(exports == NULL)
+    return ret;
+
+  ret.reserve(numExports);
+  for(UINT i = 0; i < numExports; i++)
+    ret.push_back(GetExportName(exports[i]));
+
+  return ret;
+}
+
+static rdcstr RemapRaytracingExport(const rdcarray<rdcpair<rdcstr, rdcstr>> &renames,
+                                    const rdcstr &sourceName)
+{
+  for(const rdcpair<rdcstr, rdcstr> &rename : renames)
+    if(rename.first == sourceName)
+      return rename.second;
+
+  return rdcstr();
+}
+
+static void AppendUniqueExport(rdcarray<rdcstr> &exports, const rdcstr &name)
+{
+  if(!name.empty() && !exports.contains(name))
+    exports.push_back(name);
+}
+
+static void MergeRaytracingCollection(D3D12Pipe::RaytracingState &dst,
+                                      const D3D12Pipe::RaytracingState &src,
+                                      const rdcarray<rdcpair<rdcstr, rdcstr>> &renames)
+{
+  if(renames.empty())
+  {
+    rdcarray<rdcstr> importedExports;
+
+    for(const D3D12Pipe::RaytracingShader &shader : src.shaders)
+    {
+      UpsertRaytracingShader(dst.shaders, shader);
+      AppendUniqueExport(importedExports, shader.name);
+    }
+
+    for(const D3D12Pipe::RaytracingHitGroup &hitGroup : src.hitGroups)
+    {
+      UpsertRaytracingHitGroup(dst.hitGroups, hitGroup);
+      AppendUniqueExport(importedExports, hitGroup.name);
+    }
+
+    for(const D3D12Pipe::RaytracingLocalRootSignature &localRoot : src.localRootSignatures)
+    {
+      D3D12Pipe::RaytracingLocalRootSignature importedRoot = localRoot;
+      if(importedRoot.exports.empty())
+        importedRoot.exports = importedExports;
+
+      if(!importedRoot.exports.empty())
+        dst.localRootSignatures.push_back(importedRoot);
+    }
+
+    for(const D3D12Pipe::RaytracingShaderConfig &config : src.shaderConfigs)
+    {
+      D3D12Pipe::RaytracingShaderConfig importedConfig = config;
+      if(importedConfig.exports.empty())
+        importedConfig.exports = importedExports;
+
+      if(!importedConfig.exports.empty())
+        dst.shaderConfigs.push_back(importedConfig);
+    }
+    return;
+  }
+
+  rdcarray<rdcstr> importedExports;
+
+  for(const D3D12Pipe::RaytracingShader &shader : src.shaders)
+  {
+    rdcstr newName = RemapRaytracingExport(renames, shader.name);
+    if(newName.empty())
+      continue;
+
+    D3D12Pipe::RaytracingShader renamedShader = shader;
+    renamedShader.name = newName;
+    UpsertRaytracingShader(dst.shaders, renamedShader);
+    AppendUniqueExport(importedExports, newName);
+  }
+
+  for(const D3D12Pipe::RaytracingHitGroup &hitGroup : src.hitGroups)
+  {
+    rdcstr newName = RemapRaytracingExport(renames, hitGroup.name);
+    if(newName.empty())
+      continue;
+
+    D3D12Pipe::RaytracingHitGroup renamedHitGroup = hitGroup;
+    renamedHitGroup.name = newName;
+    UpsertRaytracingHitGroup(dst.hitGroups, renamedHitGroup);
+    AppendUniqueExport(importedExports, newName);
+  }
+
+  for(const D3D12Pipe::RaytracingLocalRootSignature &localRoot : src.localRootSignatures)
+  {
+    D3D12Pipe::RaytracingLocalRootSignature filteredRoot = localRoot;
+    filteredRoot.exports.clear();
+
+    if(localRoot.exports.empty())
+    {
+      filteredRoot.exports = importedExports;
+    }
+    else
+    {
+      for(const rdcstr &name : localRoot.exports)
+        AppendUniqueExport(filteredRoot.exports, RemapRaytracingExport(renames, name));
+    }
+
+    if(!filteredRoot.exports.empty())
+      dst.localRootSignatures.push_back(filteredRoot);
+  }
+
+  for(const D3D12Pipe::RaytracingShaderConfig &config : src.shaderConfigs)
+  {
+    D3D12Pipe::RaytracingShaderConfig filteredConfig = config;
+    filteredConfig.exports.clear();
+
+    if(config.exports.empty())
+    {
+      filteredConfig.exports = importedExports;
+    }
+    else
+    {
+      for(const rdcstr &name : config.exports)
+        AppendUniqueExport(filteredConfig.exports, RemapRaytracingExport(renames, name));
+    }
+
+    if(!filteredConfig.exports.empty())
+      dst.shaderConfigs.push_back(filteredConfig);
+  }
+}
+
+struct RaytracingDispatchSBTLayout
+{
+  uint64_t raygenOffset = 0;
+  uint64_t missOffset = 0;
+  uint64_t hitGroupOffset = 0;
+  uint64_t callableOffset = 0;
+  uint64_t size = 0;
+};
+
+static bool RaytracingIdentifierEqual(const uint32_t *id0, const uint32_t *id1)
+{
+  for(UINT i = 0; i < D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES / sizeof(uint32_t); i++)
+    if(id0[i] != id1[i])
+      return false;
+
+  return true;
+}
+
+static bool RaytracingIdentifierZero(const uint32_t *id)
+{
+  for(UINT i = 0; i < D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES / sizeof(uint32_t); i++)
+    if(id[i] != 0)
+      return false;
+
+  return true;
+}
+
+static RaytracingDispatchSBTLayout GetRaytracingDispatchSBTLayout(
+    const D3D12_DISPATCH_RAYS_DESC &dispatchDesc)
+{
+  RaytracingDispatchSBTLayout layout;
+
+  layout.size += AlignUp(dispatchDesc.RayGenerationShaderRecord.SizeInBytes, 256ULL);
+
+  layout.missOffset = layout.size;
+  layout.size += AlignUp(dispatchDesc.MissShaderTable.SizeInBytes, 256ULL);
+
+  layout.hitGroupOffset = layout.size;
+  layout.size += AlignUp(dispatchDesc.HitGroupTable.SizeInBytes, 256ULL);
+
+  layout.callableOffset = layout.size;
+  layout.size += dispatchDesc.CallableShaderTable.SizeInBytes;
+
+  return layout;
+}
+
+static void FillRaytracingShaderTableBase(D3D12Pipe::RaytracingShaderTable &dst,
+                                          D3D12ResourceManager *rm,
+                                          D3D12_GPU_VIRTUAL_ADDRESS startAddress, uint64_t byteSize,
+                                          uint64_t stride)
+{
+  dst.resourceId = ResourceId();
+  dst.byteOffset = 0;
+  dst.gpuAddress = startAddress;
+  dst.byteSize = byteSize;
+  dst.stride = stride ? stride : byteSize;
+  dst.records.clear();
+
+  if(startAddress != 0)
+  {
+    ResourceId id;
+    UINT64 offs = 0;
+    WrappedID3D12Resource::GetResIDFromAddrAllowOutOfBounds(startAddress, id, offs);
+    dst.resourceId = rm->GetUnreplacedID(id);
+    dst.byteOffset = offs;
+  }
+}
+
+static const D3D12Pipe::RaytracingLocalRootSignature *FindRaytracingLocalRootSignature(
+    const D3D12Pipe::RaytracingState &state, const rdcstr &exportName, const rdcstr &hitGroupName)
+{
+  const D3D12Pipe::RaytracingLocalRootSignature *defaultRoot = NULL;
+
+  for(const D3D12Pipe::RaytracingLocalRootSignature &localRoot : state.localRootSignatures)
+  {
+    if(localRoot.exports.empty())
+    {
+      if(defaultRoot == NULL)
+        defaultRoot = &localRoot;
+      continue;
+    }
+
+    if((!exportName.empty() && localRoot.exports.contains(exportName)) ||
+       (!hitGroupName.empty() && localRoot.exports.contains(hitGroupName)))
+      return &localRoot;
+  }
+
+  return defaultRoot;
+}
+
+static const D3D12Pipe::RaytracingShader *FindRaytracingShader(
+    const D3D12Pipe::RaytracingState &state, const rdcstr &name)
+{
+  for(const D3D12Pipe::RaytracingShader &shader : state.shaders)
+    if(shader.name == name)
+      return &shader;
+
+  return NULL;
+}
+
+static const D3D12Pipe::RaytracingHitGroup *FindRaytracingHitGroup(
+    const D3D12Pipe::RaytracingState &state, const rdcstr &name)
+{
+  for(const D3D12Pipe::RaytracingHitGroup &hitGroup : state.hitGroups)
+    if(hitGroup.name == name)
+      return &hitGroup;
+
+  return NULL;
+}
+
+static void ApplyRaytracingRecordExport(D3D12Pipe::RaytracingShaderRecord &record,
+                                        const D3D12Pipe::RaytracingState &state,
+                                        const rdcstr &exportName)
+{
+  record.exportName = exportName;
+
+  if(const D3D12Pipe::RaytracingShader *shader = FindRaytracingShader(state, exportName))
+  {
+    record.stage = shader->stage;
+    record.shaderResourceId = shader->resourceId;
+    record.reflection = shader->reflection;
+    record.entryPoint = shader->entryPoint;
+    return;
+  }
+
+  if(const D3D12Pipe::RaytracingHitGroup *hitGroup = FindRaytracingHitGroup(state, exportName))
+  {
+    record.hitGroupName = hitGroup->name;
+
+    const D3D12Pipe::RaytracingShader *shader = NULL;
+    if(!hitGroup->closestHit.empty())
+      shader = FindRaytracingShader(state, hitGroup->closestHit);
+    if(shader == NULL && !hitGroup->anyHit.empty())
+      shader = FindRaytracingShader(state, hitGroup->anyHit);
+    if(shader == NULL && !hitGroup->intersection.empty())
+      shader = FindRaytracingShader(state, hitGroup->intersection);
+
+    if(shader)
+    {
+      record.stage = shader->stage;
+      record.shaderResourceId = shader->resourceId;
+      record.reflection = shader->reflection;
+      record.entryPoint = shader->entryPoint;
+    }
+  }
+}
+
+static void FillRaytracingLocalRootDescriptor(Descriptor &dst,
+                                              D3D12ResourceManager *rm,
+                                              D3D12_ROOT_PARAMETER_TYPE type,
+                                              D3D12_GPU_VIRTUAL_ADDRESS address)
+{
+  dst = {};
+
+  if(address == 0)
+    return;
+
+  ResourceId id;
+  UINT64 offset = 0;
+  WrappedID3D12Resource::GetResIDFromAddrAllowOutOfBounds(address, id, offset);
+
+  ID3D12Resource *buf = rm->GetResAs<ID3D12Resource>(id);
+
+  dst.resource = id;
+  dst.byteOffset = offset;
+  if(buf)
+    dst.byteSize = uint32_t(buf->GetDesc().Width - RDCMIN(offset, buf->GetDesc().Width));
+
+  if(type == D3D12_ROOT_PARAMETER_TYPE_CBV)
+  {
+    dst.type = DescriptorType::ConstantBuffer;
+  }
+  else if(type == D3D12_ROOT_PARAMETER_TYPE_SRV)
+  {
+    dst.type = DescriptorType::Buffer;
+    dst.textureType = TextureType::Buffer;
+    dst.format = MakeResourceFormat(DXGI_FORMAT_R32_TYPELESS);
+    dst.elementByteSize = sizeof(uint32_t);
+  }
+  else if(type == D3D12_ROOT_PARAMETER_TYPE_UAV)
+  {
+    dst.type = DescriptorType::ReadWriteBuffer;
+    dst.textureType = TextureType::Buffer;
+    dst.format = MakeResourceFormat(DXGI_FORMAT_R32_TYPELESS);
+    dst.elementByteSize = sizeof(uint32_t);
+  }
+}
+
+static void FillRaytracingLocalRootDescriptorTable(
+    D3D12Pipe::RootParam &param, D3D12ResourceManager *rm, const rdcarray<ResourceId> &heaps,
+    D3D12_GPU_DESCRIPTOR_HANDLE handle)
+{
+  param.heap = ResourceId();
+  param.heapByteOffset = 0;
+
+  if(handle.ptr == 0)
+    return;
+
+  for(ResourceId heapId : heaps)
+  {
+    WrappedID3D12DescriptorHeap *heap = rm->GetResAs<WrappedID3D12DescriptorHeap>(heapId);
+    if(heap == NULL)
+      continue;
+
+    const uint64_t stride = heap->GetUnwrappedIncrement();
+    if(stride == 0)
+      continue;
+
+    const uint64_t start = heap->GetGPU(0).ptr;
+    const uint64_t end = start + uint64_t(heap->GetNumDescriptors()) * stride;
+    if(handle.ptr < start || handle.ptr >= end)
+      continue;
+
+    param.heap = heapId;
+    param.heapByteOffset = uint32_t((handle.ptr - start) / stride);
+    return;
+  }
+}
+
+static void DecodeRaytracingLocalRootArguments(D3D12Pipe::RaytracingShaderRecord &record,
+                                               const D3D12Pipe::RaytracingState &state,
+                                               D3D12ResourceManager *rm,
+                                               const rdcarray<ResourceId> &heaps,
+                                               const byte *recordData)
+{
+  const D3D12Pipe::RaytracingLocalRootSignature *localRoot =
+      FindRaytracingLocalRootSignature(state, record.exportName, record.hitGroupName);
+  if(localRoot == NULL || localRoot->rootSignature.parameters.empty())
+    return;
+
+  record.localRootSignature = localRoot->rootSignature;
+
+  uint64_t offset = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
+  for(D3D12Pipe::RootParam &param : record.localRootSignature.parameters)
+  {
+    const bool isTable = !param.tableRanges.empty();
+    const bool isConstants = !param.constants.empty();
+    const bool isRootDescriptor = !isTable && !isConstants &&
+                                  param.descriptor.type != DescriptorType::Unknown;
+
+    if(isTable || isRootDescriptor)
+      offset = AlignUp(offset, 8ULL);
+
+    if(offset >= record.recordByteSize)
+      break;
+
+    if(isTable)
+    {
+      if(offset + sizeof(uint64_t) > record.recordByteSize)
+        break;
+
+      D3D12_GPU_DESCRIPTOR_HANDLE handle;
+      memcpy(&handle.ptr, recordData + offset, sizeof(handle.ptr));
+      FillRaytracingLocalRootDescriptorTable(param, rm, heaps, handle);
+      offset += sizeof(uint64_t);
+    }
+    else if(isConstants)
+    {
+      uint64_t copySize = RDCMIN((uint64_t)param.constants.byteSize(),
+                                 record.recordByteSize - offset);
+      memcpy(param.constants.data(), recordData + offset, (size_t)copySize);
+      offset += param.constants.byteSize();
+    }
+    else if(isRootDescriptor)
+    {
+      if(offset + sizeof(uint64_t) > record.recordByteSize)
+        break;
+
+      D3D12_GPU_VIRTUAL_ADDRESS address = 0;
+      memcpy(&address, recordData + offset, sizeof(address));
+
+      D3D12_ROOT_PARAMETER_TYPE type = D3D12_ROOT_PARAMETER_TYPE_CBV;
+      if(param.descriptor.type == DescriptorType::Buffer)
+        type = D3D12_ROOT_PARAMETER_TYPE_SRV;
+      else if(param.descriptor.type == DescriptorType::ReadWriteBuffer)
+        type = D3D12_ROOT_PARAMETER_TYPE_UAV;
+
+      FillRaytracingLocalRootDescriptor(param.descriptor, rm, type, address);
+      offset += sizeof(uint64_t);
+    }
+  }
+}
+
+static bool ResolveRaytracingRecordNameFromProperties(ID3D12StateObjectProperties *properties,
+                                                      const rdcwstr &exportName,
+                                                      const uint32_t *identifier)
+{
+  if(properties == NULL || exportName.length() == 0)
+    return false;
+
+  void *originShaderIdentifier = properties->GetShaderIdentifier(exportName.c_str());
+  return originShaderIdentifier != NULL &&
+         RaytracingIdentifierEqual(identifier, (const uint32_t *)originShaderIdentifier);
+}
+
+static bool ResolveRaytracingRecordNameFromWrappedIdentifier(
+    const D3D12ShaderExportDatabase::ShaderExportInfo &exportInfo, const uint32_t *identifier)
+{
+  if(RaytracingIdentifierZero(identifier))
+    return false;
+
+  ResourceId identifierObjectId;
+  memcpy(&identifierObjectId, identifier, sizeof(identifierObjectId));
+  uint32_t identifierIndex = identifier[sizeof(identifierObjectId) / sizeof(uint32_t)];
+
+  return identifierObjectId == exportInfo.id && identifierIndex == exportInfo.identifierIndex;
+}
+
+static bool ResolveRaytracingRecordName(D3D12Pipe::RaytracingShaderRecord &record,
+                                        const D3D12Pipe::RaytracingState &state,
+                                        D3D12ShaderExportDatabase *exports,
+                                        const uint32_t *identifier)
+{
+  if(exports == NULL)
+    return false;
+
+  ID3D12StateObjectProperties *properties = exports->GetRealObjectProperties();
+  rdcarray<D3D12ShaderExportDatabase::ShaderExportInfo> exportInfoList = exports->GetExportInfoList();
+
+  for(const D3D12ShaderExportDatabase::ShaderExportInfo &exportInfo : exportInfoList)
+  {
+    rdcstr names[] = {exportInfo.altName, exportInfo.name};
+
+    for(const rdcstr &name : names)
+    {
+      if(name.empty())
+        continue;
+
+      rdcwstr wideName = StringFormat::UTF82Wide(name);
+      if(ResolveRaytracingRecordNameFromProperties(properties, wideName, identifier) ||
+         ResolveRaytracingRecordNameFromWrappedIdentifier(exportInfo, identifier))
+      {
+        ApplyRaytracingRecordExport(record, state, name);
+        return true;
+      }
+    }
+  }
+
+  const rdcarray<D3D12ShaderExportDatabase *> &parents = exports->GetParentDatabases();
+  for(D3D12ShaderExportDatabase *parent : parents)
+    if(ResolveRaytracingRecordName(record, state, parent, identifier))
+      return true;
+
+  return false;
+}
+
+static void ResolveRaytracingRecordName(D3D12Pipe::RaytracingShaderRecord &record,
+                                        const D3D12Pipe::RaytracingState &state,
+                                        WrappedID3D12StateObject *stateObj,
+                                        const uint32_t *identifier)
+{
+  if(stateObj == NULL || stateObj->exports == NULL)
+    return;
+
+  ResolveRaytracingRecordName(record, state, stateObj->exports, identifier);
+}
+
+static void AddRaytracingShaderTableRecords(D3D12Replay *replay,
+                                            D3D12Pipe::RaytracingShaderTable &dst,
+                                            const D3D12Pipe::RaytracingState &state,
+                                            D3D12ResourceManager *rm,
+                                            const rdcarray<ResourceId> &heaps,
+                                            WrappedID3D12StateObject *stateObj,
+                                            const byte *tableData, uint64_t tableOffset,
+                                            uint64_t tableSize, uint64_t stride,
+                                            uint32_t recordCount, ShaderStage tableStage)
+{
+  if(tableData == NULL || tableSize < D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES)
+    return;
+
+  if(stride == 0)
+    stride = tableSize;
+
+  if(stride < D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES)
+    return;
+
+  for(uint32_t i = 0; i < recordCount; i++)
+  {
+    uint64_t recordOffset = uint64_t(i) * stride;
+    if(recordOffset + D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES > tableSize)
+      break;
+
+    D3D12Pipe::RaytracingShaderRecord record;
+    record.index = i;
+    record.shaderTableResourceId = dst.resourceId;
+    record.shaderTableByteOffset = dst.byteOffset;
+    record.recordByteOffset = dst.byteOffset + recordOffset;
+    record.recordByteSize = RDCMIN(stride, tableSize - recordOffset);
+    if(record.recordByteSize > D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES)
+      record.localRootByteSize = record.recordByteSize - D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
+
+    const uint32_t *identifier = (const uint32_t *)(tableData + tableOffset + recordOffset);
+    ResolveRaytracingRecordName(record, state, stateObj, identifier);
+    if(record.stage == ShaderStage::Count && tableStage != ShaderStage::Count &&
+       record.hitGroupName.empty())
+      record.stage = tableStage;
+
+    if(record.reflection == NULL && record.shaderResourceId != ResourceId() &&
+       record.stage != ShaderStage::Count)
+    {
+      record.reflection = replay->GetShader(ResourceId(), record.shaderResourceId,
+                                            ShaderEntryPoint(record.entryPoint, record.stage));
+    }
+    DecodeRaytracingLocalRootArguments(record, state, rm, heaps,
+                                       tableData + tableOffset + recordOffset);
+
+    dst.records.push_back(record);
+  }
+}
+
+void D3D12Replay::AppendRaytracingStateObject(D3D12Pipe::RaytracingState &dst,
+                                              ResourceId stateObjectId,
+                                              rdcarray<ResourceId> &visited)
+{
+  if(stateObjectId == ResourceId() || visited.contains(stateObjectId))
+    return;
+
+  visited.push_back(stateObjectId);
+
+  D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
+  WrappedID3D12StateObject *stateObj = rm->GetResAs<WrappedID3D12StateObject>(stateObjectId);
+
+  if(stateObj == NULL)
+    return;
+
+  AppendRaytracingStateObject(dst, stateObj->baseStateObject, visited);
+
+  const D3D12_STATE_OBJECT_DESC &desc = stateObj->origDescriptor;
+  const D3D12_STATE_SUBOBJECT *subobjects = desc.pSubobjects;
+
+  struct RTAssociationTarget
+  {
+    const D3D12_STATE_SUBOBJECT *subobject = NULL;
+    rdcstr name;
+    bool shaderConfig = false;
+    size_t index = 0;
+  };
+
+  struct RTPendingAssociation
+  {
+    const D3D12_STATE_SUBOBJECT *subobject = NULL;
+    rdcstr name;
+    rdcarray<rdcstr> exports;
+  };
+
+  rdcarray<RTAssociationTarget> associationTargets;
+  rdcarray<RTPendingAssociation> pendingAssociations;
+
+  for(UINT i = 0; i < desc.NumSubobjects; i++)
+  {
+    const D3D12_STATE_SUBOBJECT &sub = subobjects[i];
+    if(sub.pDesc == NULL)
+      continue;
+
+    switch(sub.Type)
+    {
+      case D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION:
+      {
+        D3D12_EXISTING_COLLECTION_DESC *coll = (D3D12_EXISTING_COLLECTION_DESC *)sub.pDesc;
+        if(coll->pExistingCollection == NULL)
+          break;
+
+        ResourceId collId = GetResID(coll->pExistingCollection);
+
+        D3D12Pipe::RaytracingState collectionState;
+        rdcarray<ResourceId> collectionVisited = visited;
+        AppendRaytracingStateObject(collectionState, collId, collectionVisited);
+
+        rdcarray<rdcpair<rdcstr, rdcstr>> renames;
+        if(coll->NumExports > 0 && coll->pExports)
+        {
+          renames.reserve(coll->NumExports);
+          for(UINT e = 0; e < coll->NumExports; e++)
+          {
+            rdcstr exportedName = GetExportName(coll->pExports[e].Name);
+            rdcstr sourceName = GetExportName(coll->pExports[e].ExportToRename);
+            if(sourceName.empty())
+              sourceName = exportedName;
+
+            renames.push_back({sourceName, exportedName});
+          }
+        }
+
+        MergeRaytracingCollection(dst, collectionState, renames);
+        break;
+      }
+      case D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG:
+      {
+        D3D12_STATE_OBJECT_CONFIG *config = (D3D12_STATE_OBJECT_CONFIG *)sub.pDesc;
+        dst.stateObjectFlags = config->Flags;
+        break;
+      }
+      case D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE:
+      {
+        D3D12_GLOBAL_ROOT_SIGNATURE *global = (D3D12_GLOBAL_ROOT_SIGNATURE *)sub.pDesc;
+        WrappedID3D12RootSignature *root =
+            (WrappedID3D12RootSignature *)global->pGlobalRootSignature;
+
+        if(root)
+          FillRootSignature(dst.globalRootSignature, GetResID(root), root->sig, NULL);
+        break;
+      }
+      case D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_SERIALIZED_ROOT_SIGNATURE:
+      {
+        D3D12_GLOBAL_SERIALIZED_ROOT_SIGNATURE *global =
+            (D3D12_GLOBAL_SERIALIZED_ROOT_SIGNATURE *)sub.pDesc;
+        if(global->Desc.pSerializedBlob)
+        {
+          FillRootSignature(dst.globalRootSignature, ResourceId(),
+                            DecodeRootSig(global->Desc.pSerializedBlob,
+                                          global->Desc.SerializedBlobSizeInBytes),
+                            NULL);
+        }
+        break;
+      }
+      case D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE:
+      {
+        D3D12_LOCAL_ROOT_SIGNATURE *local = (D3D12_LOCAL_ROOT_SIGNATURE *)sub.pDesc;
+        WrappedID3D12RootSignature *root = (WrappedID3D12RootSignature *)local->pLocalRootSignature;
+
+        D3D12Pipe::RaytracingLocalRootSignature localRoot;
+        if(root)
+          FillRootSignature(localRoot.rootSignature, GetResID(root), root->sig, NULL);
+
+        RTAssociationTarget target;
+        target.subobject = &sub;
+        target.shaderConfig = false;
+        target.index = dst.localRootSignatures.size();
+        associationTargets.push_back(target);
+        dst.localRootSignatures.push_back(localRoot);
+        break;
+      }
+      case D3D12_STATE_SUBOBJECT_TYPE_LOCAL_SERIALIZED_ROOT_SIGNATURE:
+      {
+        D3D12_LOCAL_SERIALIZED_ROOT_SIGNATURE *local =
+            (D3D12_LOCAL_SERIALIZED_ROOT_SIGNATURE *)sub.pDesc;
+
+        D3D12Pipe::RaytracingLocalRootSignature localRoot;
+        if(local->Desc.pSerializedBlob)
+        {
+          FillRootSignature(localRoot.rootSignature, ResourceId(),
+                            DecodeRootSig(local->Desc.pSerializedBlob,
+                                          local->Desc.SerializedBlobSizeInBytes),
+                            NULL);
+        }
+
+        RTAssociationTarget target;
+        target.subobject = &sub;
+        target.shaderConfig = false;
+        target.index = dst.localRootSignatures.size();
+        associationTargets.push_back(target);
+        dst.localRootSignatures.push_back(localRoot);
+        break;
+      }
+      case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG:
+      {
+        D3D12_RAYTRACING_SHADER_CONFIG *config = (D3D12_RAYTRACING_SHADER_CONFIG *)sub.pDesc;
+
+        D3D12Pipe::RaytracingShaderConfig shaderConfig;
+        shaderConfig.maxPayloadSize = config->MaxPayloadSizeInBytes;
+        shaderConfig.maxAttributeSize = config->MaxAttributeSizeInBytes;
+
+        RTAssociationTarget target;
+        target.subobject = &sub;
+        target.shaderConfig = true;
+        target.index = dst.shaderConfigs.size();
+        associationTargets.push_back(target);
+        dst.shaderConfigs.push_back(shaderConfig);
+        break;
+      }
+      case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG:
+      {
+        D3D12_RAYTRACING_PIPELINE_CONFIG *config =
+            (D3D12_RAYTRACING_PIPELINE_CONFIG *)sub.pDesc;
+        dst.maxTraceRecursionDepth = config->MaxTraceRecursionDepth;
+        break;
+      }
+      case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG1:
+      {
+        D3D12_RAYTRACING_PIPELINE_CONFIG1 *config =
+            (D3D12_RAYTRACING_PIPELINE_CONFIG1 *)sub.pDesc;
+        dst.maxTraceRecursionDepth = config->MaxTraceRecursionDepth;
+        dst.pipelineFlags = config->Flags;
+        break;
+      }
+      case D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY:
+      {
+        D3D12_DXIL_LIBRARY_DESC *dxil = (D3D12_DXIL_LIBRARY_DESC *)sub.pDesc;
+        if(dxil->DXILLibrary.pShaderBytecode == NULL || dxil->DXILLibrary.BytecodeLength == 0)
+          break;
+
+        WrappedID3D12Shader *libraryShader =
+            WrappedID3D12Shader::AddShader(ResourceId(), dxil->DXILLibrary, m_pDevice);
+
+        DXIL::RDATData rdat;
+        bool haveRDAT = GetRaytracingRuntimeData(dxil->DXILLibrary, rdat);
+        rdcarray<ShaderEntryPoint> entries =
+            haveRDAT ? rdat.GetEntryPoints() : GetRaytracingEntryPoints(dxil->DXILLibrary);
+
+        if(dxil->NumExports > 0 && dxil->pExports)
+        {
+          for(UINT e = 0; e < dxil->NumExports; e++)
+          {
+            D3D12Pipe::RaytracingShader shader;
+            shader.name = GetExportName(dxil->pExports[e].Name);
+            shader.entryPoint = GetExportName(dxil->pExports[e].ExportToRename);
+            if(shader.entryPoint.empty())
+              shader.entryPoint = shader.name;
+
+            shader.stage = FindRaytracingEntryPointStage(entries, shader.entryPoint, shader.name);
+            shader.resourceId = rm->GetUnreplacedID(libraryShader->GetResourceID());
+            if(shader.stage != ShaderStage::Count)
+              shader.reflection =
+                  GetShader(ResourceId(), libraryShader->GetResourceID(),
+                            ShaderEntryPoint(shader.entryPoint, shader.stage));
+
+            UpsertRaytracingShader(dst.shaders, shader);
+          }
+        }
+        else
+        {
+          for(const ShaderEntryPoint &entry : entries)
+          {
+            D3D12Pipe::RaytracingShader shader;
+            shader.name = entry.name;
+            shader.entryPoint = entry.name;
+            shader.stage = entry.stage;
+            shader.resourceId = rm->GetUnreplacedID(libraryShader->GetResourceID());
+            if(shader.stage != ShaderStage::Count)
+              shader.reflection =
+                  GetShader(ResourceId(), libraryShader->GetResourceID(),
+                            ShaderEntryPoint(shader.entryPoint, shader.stage));
+
+            UpsertRaytracingShader(dst.shaders, shader);
+          }
+        }
+
+        if(haveRDAT)
+        {
+          for(const DXIL::RDATData::SubobjectInfo &rdatSub : rdat.subobjectsInfo)
+          {
+            switch(rdatSub.type)
+            {
+              case DXIL::RDATData::SubobjectInfo::SubobjectType::StateConfig:
+                dst.stateObjectFlags = (uint32_t)rdatSub.config.flags;
+                break;
+              case DXIL::RDATData::SubobjectInfo::SubobjectType::GlobalRS:
+              {
+                if(!rdatSub.rs.data.empty())
+                {
+                  FillRootSignature(dst.globalRootSignature, ResourceId(),
+                                    DecodeRootSig(rdatSub.rs.data.data(), rdatSub.rs.data.size(),
+                                                  false),
+                                    NULL);
+                }
+                break;
+              }
+              case DXIL::RDATData::SubobjectInfo::SubobjectType::LocalRS:
+              {
+                D3D12Pipe::RaytracingLocalRootSignature localRoot;
+                if(!rdatSub.rs.data.empty())
+                {
+                  FillRootSignature(localRoot.rootSignature, ResourceId(),
+                                    DecodeRootSig(rdatSub.rs.data.data(), rdatSub.rs.data.size(),
+                                                  false),
+                                    NULL);
+                }
+
+                RTAssociationTarget target;
+                target.name = rdatSub.name;
+                target.shaderConfig = false;
+                target.index = dst.localRootSignatures.size();
+                associationTargets.push_back(target);
+                dst.localRootSignatures.push_back(localRoot);
+                break;
+              }
+              case DXIL::RDATData::SubobjectInfo::SubobjectType::SubobjectToExportsAssoc:
+              {
+                RTPendingAssociation pending;
+                pending.name = rdatSub.assoc.subobject;
+                pending.exports = rdatSub.assoc.exports;
+                pendingAssociations.push_back(pending);
+                break;
+              }
+              case DXIL::RDATData::SubobjectInfo::SubobjectType::RTShaderConfig:
+              {
+                D3D12Pipe::RaytracingShaderConfig shaderConfig;
+                shaderConfig.maxPayloadSize = rdatSub.rtshaderconfig.maxPayloadBytes;
+                shaderConfig.maxAttributeSize = rdatSub.rtshaderconfig.maxAttribBytes;
+
+                RTAssociationTarget target;
+                target.name = rdatSub.name;
+                target.shaderConfig = true;
+                target.index = dst.shaderConfigs.size();
+                associationTargets.push_back(target);
+                dst.shaderConfigs.push_back(shaderConfig);
+                break;
+              }
+              case DXIL::RDATData::SubobjectInfo::SubobjectType::RTPipeConfig:
+              case DXIL::RDATData::SubobjectInfo::SubobjectType::RTPipeConfig1:
+                dst.maxTraceRecursionDepth = rdatSub.rtpipeconfig.maxRecursion;
+                if(rdatSub.type == DXIL::RDATData::SubobjectInfo::SubobjectType::RTPipeConfig1)
+                  dst.pipelineFlags = (uint32_t)rdatSub.rtpipeconfig.flags;
+                break;
+              case DXIL::RDATData::SubobjectInfo::SubobjectType::Hitgroup:
+              {
+                D3D12Pipe::RaytracingHitGroup hitGroup;
+                hitGroup.name = rdatSub.name;
+                hitGroup.proceduralPrimitive =
+                    rdatSub.hitgroup.type == DXIL::RDATData::HitGroupType::ProceduralPrimitive;
+                hitGroup.closestHit = rdatSub.hitgroup.closestHit;
+                hitGroup.anyHit = rdatSub.hitgroup.anyHit;
+                hitGroup.intersection = rdatSub.hitgroup.intersection;
+
+                UpsertRaytracingHitGroup(dst.hitGroups, hitGroup);
+                break;
+              }
+            }
+          }
+        }
+        break;
+      }
+      case D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP:
+      {
+        D3D12_HIT_GROUP_DESC *hitGroup = (D3D12_HIT_GROUP_DESC *)sub.pDesc;
+
+        D3D12Pipe::RaytracingHitGroup dstHitGroup;
+        dstHitGroup.name = GetExportName(hitGroup->HitGroupExport);
+        dstHitGroup.proceduralPrimitive =
+            hitGroup->Type == D3D12_HIT_GROUP_TYPE_PROCEDURAL_PRIMITIVE;
+        dstHitGroup.closestHit = GetExportName(hitGroup->ClosestHitShaderImport);
+        dstHitGroup.anyHit = GetExportName(hitGroup->AnyHitShaderImport);
+        dstHitGroup.intersection = GetExportName(hitGroup->IntersectionShaderImport);
+
+        UpsertRaytracingHitGroup(dst.hitGroups, dstHitGroup);
+        break;
+      }
+      case D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION:
+      {
+        D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION *assoc =
+            (D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION *)sub.pDesc;
+
+        RTPendingAssociation pending;
+        pending.subobject = assoc->pSubobjectToAssociate;
+        pending.exports = GetAssociationExports(assoc->NumExports, assoc->pExports);
+        pendingAssociations.push_back(pending);
+        break;
+      }
+      case D3D12_STATE_SUBOBJECT_TYPE_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION:
+      {
+        D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION *assoc =
+            (D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION *)sub.pDesc;
+
+        RTPendingAssociation pending;
+        pending.name = GetExportName(assoc->SubobjectToAssociate);
+        pending.exports = GetAssociationExports(assoc->NumExports, assoc->pExports);
+        pendingAssociations.push_back(pending);
+        break;
+      }
+      default: break;
+    }
+  }
+
+  for(const RTPendingAssociation &assoc : pendingAssociations)
+  {
+    for(const RTAssociationTarget &target : associationTargets)
+    {
+      if(assoc.subobject)
+      {
+        if(target.subobject != assoc.subobject)
+          continue;
+      }
+      else if(!assoc.name.empty())
+      {
+        if(target.name != assoc.name)
+          continue;
+      }
+      else
+      {
+        continue;
+      }
+
+      if(target.shaderConfig)
+        dst.shaderConfigs[target.index].exports = assoc.exports;
+      else
+        dst.localRootSignatures[target.index].exports = assoc.exports;
+
+      break;
+    }
+  }
+
+  for(const D3D12Pipe::RaytracingHitGroup &hitGroup : dst.hitGroups)
+  {
+    struct HitGroupShader
+    {
+      rdcstr name;
+      ShaderStage stage;
+    };
+
+    const HitGroupShader shaders[] = {
+        {hitGroup.closestHit, ShaderStage::ClosestHit},
+        {hitGroup.anyHit, ShaderStage::AnyHit},
+        {hitGroup.intersection, ShaderStage::Intersection},
+    };
+
+    for(const HitGroupShader &hitGroupShader : shaders)
+    {
+      if(hitGroupShader.name.empty())
+        continue;
+
+      int32_t shaderIndex = FindRaytracingShader(dst.shaders, hitGroupShader.name);
+      if(shaderIndex < 0)
+        continue;
+
+      D3D12Pipe::RaytracingShader &shader = dst.shaders[(size_t)shaderIndex];
+      if(shader.stage == ShaderStage::Count)
+        shader.stage = hitGroupShader.stage;
+
+      if(shader.reflection == NULL && shader.resourceId != ResourceId() &&
+         shader.stage != ShaderStage::Count)
+      {
+        shader.reflection = GetShader(ResourceId(), shader.resourceId,
+                                      ShaderEntryPoint(shader.entryPoint, shader.stage));
+      }
+    }
+  }
+}
+
+void D3D12Replay::FillRaytracingState(D3D12Pipe::RaytracingState &dst, ResourceId stateObjectId)
+{
+  dst = D3D12Pipe::RaytracingState();
+
+  if(stateObjectId == ResourceId())
+    return;
+
+  D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
+  dst.stateObjectResourceId = rm->GetUnreplacedID(stateObjectId);
+
+  rdcarray<ResourceId> visited;
+  AppendRaytracingStateObject(dst, stateObjectId, visited);
+}
+
+void D3D12Replay::FillRaytracingDispatchState(D3D12Pipe::RaytracingState &dst, uint32_t eventId)
+{
+  dst.dispatchDimensions[0] = 0;
+  dst.dispatchDimensions[1] = 0;
+  dst.dispatchDimensions[2] = 0;
+  dst.raygenTable = D3D12Pipe::RaytracingShaderTable();
+  dst.missTable = D3D12Pipe::RaytracingShaderTable();
+  dst.hitGroupTable = D3D12Pipe::RaytracingShaderTable();
+  dst.callableTable = D3D12Pipe::RaytracingShaderTable();
+
+  if(dst.stateObjectResourceId == ResourceId())
+    return;
+
+  D3D12CommandData *cmdData = m_pDevice->GetQueue()->GetCommandData();
+  if(cmdData == NULL)
+    return;
+
+  D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
+
+  {
+    const D3D12RenderState::RootSignature &globalSig = cmdData->m_RenderState.compute;
+    const rdcarray<D3D12RenderState::SignatureElement> &rootElems = globalSig.sigelems;
+    WrappedID3D12RootSignature *rootSig =
+        rm->GetResAs<WrappedID3D12RootSignature>(globalSig.rootsig);
+
+    if(rootSig)
+      FillRootSignature(dst.globalRootSignature, GetResID(rootSig), rootSig->sig, &rootElems);
+  }
+
+  const ActionDescription *action = m_pDevice->GetAction(eventId);
+  if(action == NULL || !(action->flags & ActionFlags::DispatchRay))
+    return;
+
+  if(cmdData->m_RayDispatches.empty())
+    return;
+
+  const PatchedRayDispatch &patchedDispatch = cmdData->m_RayDispatches.back();
+  const D3D12_DISPATCH_RAYS_DESC &dispatchDesc = patchedDispatch.desc;
+
+  dst.dispatchDimensions[0] = dispatchDesc.Width ? dispatchDesc.Width : action->dispatchDimension[0];
+  dst.dispatchDimensions[1] = dispatchDesc.Height ? dispatchDesc.Height : action->dispatchDimension[1];
+  dst.dispatchDimensions[2] = dispatchDesc.Depth ? dispatchDesc.Depth : action->dispatchDimension[2];
+
+  FillRaytracingShaderTableBase(dst.raygenTable, rm,
+                                dispatchDesc.RayGenerationShaderRecord.StartAddress,
+                                dispatchDesc.RayGenerationShaderRecord.SizeInBytes,
+                                dispatchDesc.RayGenerationShaderRecord.SizeInBytes);
+  FillRaytracingShaderTableBase(dst.missTable, rm, dispatchDesc.MissShaderTable.StartAddress,
+                                dispatchDesc.MissShaderTable.SizeInBytes,
+                                dispatchDesc.MissShaderTable.StrideInBytes);
+  FillRaytracingShaderTableBase(dst.hitGroupTable, rm,
+                                dispatchDesc.HitGroupTable.StartAddress,
+                                dispatchDesc.HitGroupTable.SizeInBytes,
+                                dispatchDesc.HitGroupTable.StrideInBytes);
+  FillRaytracingShaderTableBase(dst.callableTable, rm,
+                                dispatchDesc.CallableShaderTable.StartAddress,
+                                dispatchDesc.CallableShaderTable.SizeInBytes,
+                                dispatchDesc.CallableShaderTable.StrideInBytes);
+
+  WrappedID3D12StateObject *stateObj =
+      rm->GetResAs<WrappedID3D12StateObject>(cmdData->m_RenderState.stateobj);
+  if(stateObj == NULL || patchedDispatch.resources.patchScratchBuffer == NULL ||
+     patchedDispatch.comSig != NULL)
+    return;
+
+  RaytracingDispatchSBTLayout layout = GetRaytracingDispatchSBTLayout(dispatchDesc);
+  const byte *patchedSBTData = NULL;
+  byte *readbackData = NULL;
+  D3D12GpuBuffer *temporaryReadback = NULL;
+
+  if(patchedDispatch.resources.readbackBuffer)
+  {
+    readbackData = (byte *)patchedDispatch.resources.readbackBuffer->Map();
+    if(readbackData == NULL)
+      return;
+
+    patchedSBTData = readbackData + patchedDispatch.resources.patchScratchBuffer->Size();
+  }
+  else
+  {
+    if(layout.size == 0 ||
+       !rm->GetGPUBufferAllocator().Alloc(D3D12GpuBufferHeapType::ReadBackHeap,
+                                          D3D12GpuBufferHeapMemoryFlag::Default, layout.size,
+                                          D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT,
+                                          &temporaryReadback))
+      return;
+
+    ID3D12GraphicsCommandListX *copyList = GetDebugManager()->ResetDebugList();
+    ID3D12GraphicsCommandList *realCopyList =
+        ((WrappedID3D12GraphicsCommandList *)copyList)->GetReal();
+
+    realCopyList->CopyBufferRegion(temporaryReadback->Resource(), temporaryReadback->Offset(),
+                                   patchedDispatch.resources.patchScratchBuffer->Resource(),
+                                   patchedDispatch.resources.patchScratchBuffer->Offset(),
+                                   layout.size);
+    realCopyList->Close();
+
+    ID3D12CommandList *list = copyList;
+    m_pDevice->GetQueue()->ExecuteCommandLists(1, &list);
+    m_pDevice->InternalQueueWaitForIdle();
+    GetDebugManager()->ResetDebugAlloc();
+
+    patchedSBTData = (byte *)temporaryReadback->Map();
+    if(patchedSBTData == NULL)
+    {
+      SAFE_RELEASE(temporaryReadback);
+      return;
+    }
+  }
+
+  AddRaytracingShaderTableRecords(this, dst.raygenTable, dst, rm, cmdData->m_RenderState.heaps,
+                                  stateObj, patchedSBTData, layout.raygenOffset,
+                                  dispatchDesc.RayGenerationShaderRecord.SizeInBytes,
+                                  dispatchDesc.RayGenerationShaderRecord.SizeInBytes, 1,
+                                  ShaderStage::RayGen);
+
+  uint64_t missStride = dispatchDesc.MissShaderTable.StrideInBytes;
+  if(missStride == 0)
+    missStride = dispatchDesc.MissShaderTable.SizeInBytes;
+  uint32_t missCount =
+      missStride ? uint32_t(dispatchDesc.MissShaderTable.SizeInBytes / missStride) : 0;
+  AddRaytracingShaderTableRecords(this, dst.missTable, dst, rm, cmdData->m_RenderState.heaps,
+                                  stateObj, patchedSBTData, layout.missOffset,
+                                  dispatchDesc.MissShaderTable.SizeInBytes, missStride, missCount,
+                                  ShaderStage::Miss);
+
+  uint64_t hitStride = dispatchDesc.HitGroupTable.StrideInBytes;
+  if(hitStride == 0)
+    hitStride = dispatchDesc.HitGroupTable.SizeInBytes;
+  uint32_t hitCount =
+      hitStride ? uint32_t(dispatchDesc.HitGroupTable.SizeInBytes / hitStride) : 0;
+  AddRaytracingShaderTableRecords(this, dst.hitGroupTable, dst, rm, cmdData->m_RenderState.heaps,
+                                  stateObj, patchedSBTData, layout.hitGroupOffset,
+                                  dispatchDesc.HitGroupTable.SizeInBytes, hitStride, hitCount,
+                                  ShaderStage::Count);
+
+  uint64_t callableStride = dispatchDesc.CallableShaderTable.StrideInBytes;
+  if(callableStride == 0)
+    callableStride = dispatchDesc.CallableShaderTable.SizeInBytes;
+  uint32_t callableCount =
+      callableStride ? uint32_t(dispatchDesc.CallableShaderTable.SizeInBytes / callableStride) : 0;
+  AddRaytracingShaderTableRecords(this, dst.callableTable, dst, rm, cmdData->m_RenderState.heaps,
+                                  stateObj, patchedSBTData, layout.callableOffset,
+                                  dispatchDesc.CallableShaderTable.SizeInBytes, callableStride,
+                                  callableCount, ShaderStage::Callable);
+
+  if(patchedDispatch.resources.readbackBuffer)
+  {
+    patchedDispatch.resources.readbackBuffer->Unmap();
+  }
+  else
+  {
+    temporaryReadback->Unmap();
+    SAFE_RELEASE(temporaryReadback);
+  }
+}
+
 void D3D12Replay::SavePipelineState(uint32_t eventId)
 {
   if(!m_D3D12PipelineState)
@@ -1339,138 +2765,14 @@ void D3D12Replay::SavePipelineState(uint32_t eventId)
 
     WrappedID3D12RootSignature *rootSig = rm->GetResAs<WrappedID3D12RootSignature>(sig.rootsig);
 
-    state.rootSignature.resourceId = GetResID(rootSig);
-    state.rootSignature.parameters.clear();
-    state.rootSignature.staticSamplers.clear();
-
     if(rootSig)
-    {
-      state.rootSignature.parameters.reserve(rootSig->sig.Parameters.size());
-      for(size_t i = 0; i < rootSig->sig.Parameters.size(); i++)
-      {
-        const D3D12RootSignatureParameter &src = rootSig->sig.Parameters[i];
-        D3D12Pipe::RootParam dst;
-        dst.visibility = ConvertVisibility(src.ShaderVisibility);
-
-        switch(src.ParameterType)
-        {
-          case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
-          {
-            if(i < rootElems.size())
-            {
-              dst.heap = rootElems[i].id;
-              dst.heapByteOffset = (uint32_t)rootElems[i].offset;
-            }
-
-            UINT prevTableOffset = 0;
-
-            dst.tableRanges.reserve(src.DescriptorTable.NumDescriptorRanges);
-            for(UINT r = 0; r < src.DescriptorTable.NumDescriptorRanges; r++)
-            {
-              const D3D12_DESCRIPTOR_RANGE1 &srcRange = src.DescriptorTable.pDescriptorRanges[r];
-
-              D3D12Pipe::RootTableRange range;
-
-              switch(srcRange.RangeType)
-              {
-                case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
-                  range.category = DescriptorCategory::ConstantBlock;
-                  break;
-                case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
-                  range.category = DescriptorCategory::Sampler;
-                  break;
-                case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
-                  range.category = DescriptorCategory::ReadOnlyResource;
-                  break;
-                case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
-                  range.category = DescriptorCategory::ReadWriteResource;
-                  break;
-              }
-
-              UINT offset = srcRange.OffsetInDescriptorsFromTableStart;
-
-              if(srcRange.OffsetInDescriptorsFromTableStart == D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND)
-              {
-                range.appended = true;
-                offset = prevTableOffset;
-              }
-
-              range.space = srcRange.RegisterSpace;
-              range.baseRegister = srcRange.BaseShaderRegister;
-              range.count = srcRange.NumDescriptors;
-              range.tableByteOffset = offset;
-
-              prevTableOffset = offset + srcRange.NumDescriptors;
-
-              dst.tableRanges.push_back(range);
-            }
-
-            break;
-          }
-          case D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
-          {
-            dst.constants.resize(src.Constants.Num32BitValues * 4);
-            dst.space = src.Constants.RegisterSpace;
-            dst.reg = src.Constants.ShaderRegister;
-
-            if(i < rootElems.size())
-            {
-              memcpy(dst.constants.data(), rootElems[i].constants.data(),
-                     RDCMIN(rootElems[i].constants.byteSize(), dst.constants.byteSize()));
-            }
-
-            break;
-          }
-          case D3D12_ROOT_PARAMETER_TYPE_CBV:
-          {
-            dst.descriptor.type = DescriptorType::ConstantBuffer;
-            dst.space = src.Descriptor.RegisterSpace;
-            dst.reg = src.Descriptor.ShaderRegister;
-
-            if(i < rootElems.size())
-              FillRootDescriptor(dst.descriptor, rootElems[i]);
-            break;
-          }
-          case D3D12_ROOT_PARAMETER_TYPE_SRV:
-          {
-            dst.descriptor.type = DescriptorType::Buffer;
-            dst.space = src.Descriptor.RegisterSpace;
-            dst.reg = src.Descriptor.ShaderRegister;
-
-            if(i < rootElems.size())
-              FillRootDescriptor(dst.descriptor, rootElems[i]);
-            break;
-          }
-          case D3D12_ROOT_PARAMETER_TYPE_UAV:
-          {
-            dst.descriptor.type = DescriptorType::ReadWriteBuffer;
-            dst.space = src.Descriptor.RegisterSpace;
-            dst.reg = src.Descriptor.ShaderRegister;
-
-            if(i < rootElems.size())
-              FillRootDescriptor(dst.descriptor, rootElems[i]);
-            break;
-          }
-        }
-
-        state.rootSignature.parameters.push_back(std::move(dst));
-      }
-
-      state.rootSignature.staticSamplers.reserve(rootSig->sig.StaticSamplers.size());
-      for(const D3D12_STATIC_SAMPLER_DESC1 &src : rootSig->sig.StaticSamplers)
-      {
-        D3D12Pipe::StaticSampler dst;
-        dst.visibility = ConvertVisibility(src.ShaderVisibility);
-
-        dst.space = src.RegisterSpace;
-        dst.reg = src.ShaderRegister;
-
-        FillSamplerDescriptor(dst.descriptor, ConvertStaticSampler(src));
-
-        state.rootSignature.staticSamplers.push_back(std::move(dst));
-      }
-    }
+      FillRootSignature(state.rootSignature, GetResID(rootSig), rootSig->sig, &rootElems);
+    else
+      FillRootSignature(state.rootSignature, ResourceId(), D3D12RootSignature(), NULL);
   }
+
+  FillRaytracingState(state.raytracing, rs.stateobj);
+  FillRaytracingDispatchState(state.raytracing, eventId);
 
   state.descriptorHeaps.clear();
   for(ResourceId id : rs.heaps)
@@ -3641,6 +4943,7 @@ void D3D12Replay::ReloadShaderDebugInformation()
 {
   DXBC::ResetSearchDirsCache();
   WrappedID3D12Shader::ReloadShaderDebugInformation();
+  ClearRaytracingReflectionCache();
   ClearReplayCache();
 }
 

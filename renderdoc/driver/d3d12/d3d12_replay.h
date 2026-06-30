@@ -293,7 +293,15 @@ public:
 private:
   void FillDescriptor(Descriptor &dst, const D3D12Descriptor *src);
   void FillRootDescriptor(Descriptor &dst, const D3D12RenderState::SignatureElement &src);
+  void FillRootSignature(D3D12Pipe::RootSignature &dst, ResourceId resourceId,
+                         const D3D12RootSignature &srcSig,
+                         const rdcarray<D3D12RenderState::SignatureElement> *rootElems);
   void FillSamplerDescriptor(SamplerDescriptor &dst, const D3D12_SAMPLER_DESC2 &src);
+  void FillRaytracingState(D3D12Pipe::RaytracingState &dst, ResourceId stateObjectId);
+  void FillRaytracingDispatchState(D3D12Pipe::RaytracingState &dst, uint32_t eventId);
+  void AppendRaytracingStateObject(D3D12Pipe::RaytracingState &dst, ResourceId stateObjectId,
+                                   rdcarray<ResourceId> &visited);
+  void ClearRaytracingReflectionCache();
 
   bool CreateSOBuffers();
   void ClearPostVSCache();
@@ -329,6 +337,21 @@ private:
 
     std::unordered_map<uint32_t, D3D12DynamicShaderFeedback> Usage;
   } m_BindlessFeedback;
+
+  struct RaytracingReflectionKey
+  {
+    ResourceId shader;
+    ShaderEntryPoint entry;
+
+    bool operator<(const RaytracingReflectionKey &o) const
+    {
+      if(!(shader == o.shader))
+        return shader < o.shader;
+      return entry < o.entry;
+    }
+  };
+
+  std::map<RaytracingReflectionKey, ShaderReflection *> m_RaytracingReflections;
 
   struct D3D12PostVSData
   {

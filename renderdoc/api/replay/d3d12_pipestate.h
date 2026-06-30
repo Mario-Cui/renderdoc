@@ -1044,6 +1044,140 @@ If empty, this shader configuration applies to all applicable exports in the sta
   rdcarray<rdcstr> exports;
 };
 
+DOCUMENT("Describes a single D3D12 raytracing shader table record.");
+struct RaytracingShaderRecord
+{
+  DOCUMENT("");
+  RaytracingShaderRecord() = default;
+  RaytracingShaderRecord(const RaytracingShaderRecord &) = default;
+  RaytracingShaderRecord &operator=(const RaytracingShaderRecord &) = default;
+
+  DOCUMENT(R"(The shader table index of this record.
+
+:type: int
+)");
+  uint32_t index = 0;
+
+  DOCUMENT(R"(The shader stage for this record.
+
+:type: ShaderStage
+)");
+  ShaderStage stage = ShaderStage::Count;
+
+  DOCUMENT(R"(The export name resolved from the shader identifier.
+
+:type: str
+)");
+  rdcstr exportName;
+
+  DOCUMENT(R"(The hit group export name resolved from the shader identifier, if this is a hit group
+record.
+
+:type: str
+)");
+  rdcstr hitGroupName;
+
+  DOCUMENT(R"(The shader table buffer containing this record.
+
+:type: ResourceId
+)");
+  ResourceId shaderTableResourceId;
+
+  DOCUMENT(R"(The byte offset of the shader table from the start of :data:`shaderTableResourceId`.
+
+:type: int
+)");
+  uint64_t shaderTableByteOffset = 0;
+
+  DOCUMENT(R"(The byte offset of this record from the start of :data:`shaderTableResourceId`.
+
+:type: int
+)");
+  uint64_t recordByteOffset = 0;
+
+  DOCUMENT(R"(The size in bytes of this record.
+
+:type: int
+)");
+  uint64_t recordByteSize = 0;
+
+  DOCUMENT(R"(The size in bytes of local root arguments in this record.
+
+:type: int
+)");
+  uint64_t localRootByteSize = 0;
+
+  DOCUMENT(R"(The local root signature with this record's local root arguments decoded into the root
+parameters. If no local root signature applies this will be empty.
+
+:type: D3D12RootSignature
+)");
+  RootSignature localRootSignature;
+
+  DOCUMENT(R"(The :class:`ResourceId` of the DXIL library containing this shader.
+
+:type: ResourceId
+)");
+  ResourceId shaderResourceId;
+
+  DOCUMENT(R"(The reflection data for this shader.
+
+:type: ShaderReflection
+)");
+  const ShaderReflection *reflection = NULL;
+
+  DOCUMENT(R"(The entry point name inside the DXIL library.
+
+:type: str
+)");
+  rdcstr entryPoint;
+};
+
+DOCUMENT("Describes a D3D12 raytracing shader table.");
+struct RaytracingShaderTable
+{
+  DOCUMENT("");
+  RaytracingShaderTable() = default;
+  RaytracingShaderTable(const RaytracingShaderTable &) = default;
+  RaytracingShaderTable &operator=(const RaytracingShaderTable &) = default;
+
+  DOCUMENT(R"(The shader table buffer.
+
+:type: ResourceId
+)");
+  ResourceId resourceId;
+
+  DOCUMENT(R"(The byte offset of the shader table from the start of :data:`resourceId`.
+
+:type: int
+)");
+  uint64_t byteOffset = 0;
+
+  DOCUMENT(R"(The GPU virtual address of the shader table.
+
+:type: int
+)");
+  uint64_t gpuAddress = 0;
+
+  DOCUMENT(R"(The size in bytes of the shader table.
+
+:type: int
+)");
+  uint64_t byteSize = 0;
+
+  DOCUMENT(R"(The stride in bytes between shader records.
+
+:type: int
+)");
+  uint64_t stride = 0;
+
+  DOCUMENT(R"(The shader records in this table.
+
+:type: List[D3D12RaytracingShaderRecord]
+)");
+  rdcarray<RaytracingShaderRecord> records;
+};
+
 DOCUMENT("Describes the D3D12 raytracing pipeline state.");
 struct RaytracingState
 {
@@ -1105,6 +1239,36 @@ struct RaytracingState
 :type: List[D3D12RaytracingHitGroup]
 )");
   rdcarray<RaytracingHitGroup> hitGroups;
+
+  DOCUMENT(R"(The current DispatchRays dimensions.
+
+:type: Tuple[int,int,int]
+)");
+  rdcfixedarray<uint32_t, 3> dispatchDimensions = {};
+
+  DOCUMENT(R"(The ray generation shader record for the current DispatchRays.
+
+:type: D3D12RaytracingShaderTable
+)");
+  RaytracingShaderTable raygenTable;
+
+  DOCUMENT(R"(The miss shader table for the current DispatchRays.
+
+:type: D3D12RaytracingShaderTable
+)");
+  RaytracingShaderTable missTable;
+
+  DOCUMENT(R"(The hit group table for the current DispatchRays.
+
+:type: D3D12RaytracingShaderTable
+)");
+  RaytracingShaderTable hitGroupTable;
+
+  DOCUMENT(R"(The callable shader table for the current DispatchRays.
+
+:type: D3D12RaytracingShaderTable
+)");
+  RaytracingShaderTable callableTable;
 };
 
 DOCUMENT("Describes the current state of D3D12 predicated rendering.");
@@ -1274,6 +1438,8 @@ DECLARE_REFLECTION_STRUCT(D3D12Pipe::RaytracingShader);
 DECLARE_REFLECTION_STRUCT(D3D12Pipe::RaytracingHitGroup);
 DECLARE_REFLECTION_STRUCT(D3D12Pipe::RaytracingLocalRootSignature);
 DECLARE_REFLECTION_STRUCT(D3D12Pipe::RaytracingShaderConfig);
+DECLARE_REFLECTION_STRUCT(D3D12Pipe::RaytracingShaderRecord);
+DECLARE_REFLECTION_STRUCT(D3D12Pipe::RaytracingShaderTable);
 DECLARE_REFLECTION_STRUCT(D3D12Pipe::RaytracingState);
 DECLARE_REFLECTION_STRUCT(D3D12Pipe::Predication);
 DECLARE_REFLECTION_STRUCT(D3D12Pipe::State);

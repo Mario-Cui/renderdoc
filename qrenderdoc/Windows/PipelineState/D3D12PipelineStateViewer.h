@@ -34,10 +34,12 @@ class D3D12PipelineStateViewer;
 
 class QXmlStreamWriter;
 
+class CollapseGroupBox;
 class ComputeDebugSelector;
 class RDLabel;
 class RDTreeWidget;
 class RDTreeWidgetItem;
+class QToolButton;
 struct D3D12ViewTag;
 class PipelineStateViewer;
 
@@ -77,6 +79,9 @@ private slots:
   void rootSigView_clicked();
   void predicateView_clicked();
   void shaderSave_clicked();
+  void rtShader_itemActivated(RDTreeWidgetItem *item, int column);
+  void rtShaderView_clicked();
+  void rtShaderSave_clicked();
   void resource_itemActivated(RDTreeWidgetItem *item, int column);
   void cbuffer_itemActivated(RDTreeWidgetItem *item, int column);
   void vertex_leave(QEvent *e);
@@ -90,12 +95,22 @@ private:
   ICaptureContext &m_Ctx;
   PipelineStateViewer &m_Common;
   ComputeDebugSelector *m_ComputeDebugSelector;
+  CollapseGroupBox *m_RTSamplersGroup = NULL;
+  CollapseGroupBox *m_RTCBuffersGroup = NULL;
+  RDTreeWidget *m_RTSamplers = NULL;
+  RDTreeWidget *m_RTCBuffers = NULL;
+  QToolButton *m_RTGlobalRootSigButton = NULL;
+  QToolButton *m_RTShaderViewButton = NULL;
+  QToolButton *m_RTShaderSaveButton = NULL;
+  QToolButton *m_RTLocalRootSigButton = NULL;
 
   void setOldMeshPipeFlow();
   void setNewMeshPipeFlow();
 
   void setShaderState(const D3D12Pipe::Shader &stage, RDLabel *pipeline, RDLabel *shader,
                       RDLabel *rootSig);
+  void setRaytracingState(const D3D12Pipe::RaytracingState &rt);
+  void clearRaytracingState();
 
   void addResourceRow(const D3D12ViewTag &view, const ShaderResource *shaderInput, bool spacesUsed,
                       RDTreeWidget *resources);
@@ -104,12 +119,17 @@ private:
                         RDTreeWidget *samp, RDTreeWidget *cbuffer, RDTreeWidget *uavs);
   void setState();
   void clearState();
+  void setRaytracingRecordDetails(const D3D12Pipe::RaytracingShaderRecord *record);
+  void addRaytracingRootSignatureRows(const D3D12Pipe::RootSignature &rootSignature,
+                                      const QString &scope);
+  void addRaytracingShaderReflectionRows(const D3D12Pipe::RaytracingShaderRecord *record);
 
   void setInactiveRow(RDTreeWidgetItem *node);
   void setEmptyRow(RDTreeWidgetItem *node);
   void highlightIABind(int slot);
 
   const D3D12Pipe::Shader *stageForSender(QWidget *widget);
+  const D3D12Pipe::RaytracingShaderRecord *raytracingRecordForItem(RDTreeWidgetItem *item);
 
   void setViewDetails(RDTreeWidgetItem *node, const D3D12ViewTag &view, TextureDescription *tex);
   void setViewDetails(RDTreeWidgetItem *node, const D3D12ViewTag &view, BufferDescription *buf);
@@ -124,11 +144,14 @@ private:
                               const ShaderResource *shaderInput, const QString &extraParams);
   void exportHTML(QXmlStreamWriter &xml, const D3D12Pipe::InputAssembly &ia);
   void exportHTML(QXmlStreamWriter &xml, const D3D12Pipe::Shader &sh);
+  void exportHTML(QXmlStreamWriter &xml, const D3D12Pipe::RaytracingState &rt);
   void exportHTML(QXmlStreamWriter &xml, const D3D12Pipe::StreamOut &so);
   void exportHTML(QXmlStreamWriter &xml, const D3D12Pipe::Rasterizer &rs);
   void exportHTML(QXmlStreamWriter &xml, const D3D12Pipe::OM &om);
 
   QMap<QPair<ResourceId, uint32_t>, DescriptorLogicalLocation> m_Locations;
+  QMap<QPair<ResourceId, uint32_t>, Descriptor> m_RTDescriptors;
+  QMap<QPair<ResourceId, uint32_t>, SamplerDescriptor> m_RTSamplerDescriptors;
 
   // keep track of the VB nodes (we want to be able to highlight them easily on hover)
   QList<RDTreeWidgetItem *> m_VBNodes;

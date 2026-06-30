@@ -137,13 +137,17 @@ bool WrappedID3D12Device::Serialise_AddToStateObject(SerialiserType &ser,
     wrapped->exports =
         new D3D12ShaderExportDatabase(pNewStateObject, GetResourceManager()->GetRTManager());
 
+    wrapped->baseStateObject = GetResID(pStateObjectToGrowFrom);
+    wrapped->origDescriptor = OrigAddition;
+    OrigAddition = {};
+
     AddResource(pNewStateObject, ResourceType::PipelineState, "State Object");
     DerivedResource(pStateObjectToGrowFrom, pNewStateObject);
 
     rdcarray<Threading::JobSystem::Job *> parents;
 
-    const D3D12_STATE_SUBOBJECT *subs = OrigAddition.pSubobjects;
-    for(UINT i = 0; i < OrigAddition.NumSubobjects; i++)
+    const D3D12_STATE_SUBOBJECT *subs = wrapped->origDescriptor.pSubobjects;
+    for(UINT i = 0; i < wrapped->origDescriptor.NumSubobjects; i++)
     {
       if(subs[i].Type == D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE ||
          subs[i].Type == D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE)
@@ -166,8 +170,8 @@ bool WrappedID3D12Device::Serialise_AddToStateObject(SerialiserType &ser,
 
     if(Replay_Debug_SingleThreadedCompilation())
     {
-      RDResult res = DeferredStateObjGrow(m_pDevice7, OrigAddition, pStateObjectToGrowFrom, wrapped);
-      Deserialise(OrigAddition);
+      RDResult res =
+          DeferredStateObjGrow(m_pDevice7, wrapped->origDescriptor, pStateObjectToGrowFrom, wrapped);
 
       if(res != ResultCode::Succeeded)
       {
@@ -181,13 +185,12 @@ bool WrappedID3D12Device::Serialise_AddToStateObject(SerialiserType &ser,
       parents.push_back(GetWrapped(pStateObjectToGrowFrom)->deferredJob);
 
       wrapped->deferredJob = Threading::JobSystem::AddJob(
-          [wrappedD3D12 = this, device7 = m_pDevice7, OrigAddition, pStateObjectToGrowFrom, wrapped]() {
+          [wrappedD3D12 = this, device7 = m_pDevice7, pStateObjectToGrowFrom, wrapped]() {
             PerformanceTimer timer;
             wrappedD3D12->CheckDeferredResult(
-                DeferredStateObjGrow(device7, OrigAddition, pStateObjectToGrowFrom, wrapped));
+                DeferredStateObjGrow(device7, wrapped->origDescriptor, pStateObjectToGrowFrom,
+                                     wrapped));
             wrappedD3D12->AddDeferredTime(timer.GetMilliseconds());
-
-            Deserialise(OrigAddition);
           },
           parents);
     }
@@ -230,6 +233,7 @@ HRESULT STDMETHODCALLTYPE WrappedID3D12Device::AddToStateObject(
   if(SUCCEEDED(ret))
   {
     WrappedID3D12StateObject *wrapped = new WrappedID3D12StateObject(ResourceId(), real, false, this);
+    wrapped->baseStateObject = GetResID(pStateObjectToGrowFrom);
 
     if(IsCaptureMode(m_State))
     {

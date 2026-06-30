@@ -1682,6 +1682,7 @@ public:
   // IDebugInfo interface
   rdcstr GetCompilerSig() const override { return m_CompilerSig; }
   rdcstr GetEntryFunction() const override { return m_EntryPoint; }
+  void SetEntryFunction(const rdcstr &entry) { m_EntryPoint = entry; }
   rdcstr GetShaderProfile() const override { return m_Profile; }
   ShaderCompileFlags GetShaderCompileFlags() const override { return m_CompileFlags; }
   void GetLineInfo(size_t instruction, uintptr_t offset, LineColumnInfo &lineInfo) const override;

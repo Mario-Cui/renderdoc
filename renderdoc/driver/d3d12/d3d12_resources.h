@@ -1311,6 +1311,9 @@ public:
   // Kept alive by stealing from the serialiser (preventing Deserialise from freeing it).
   D3D12_STATE_OBJECT_DESC origDescriptor = {};
 
+  // For state objects created by AddToStateObject, this is the object being grown from.
+  ResourceId baseStateObject;
+
   Threading::JobSystem::Job *deferredJob = NULL;
 
   enum

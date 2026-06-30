@@ -1686,6 +1686,40 @@ void DoSerialise(SerialiserType &ser, D3D12Pipe::RaytracingShaderConfig &el)
 }
 
 template <typename SerialiserType>
+void DoSerialise(SerialiserType &ser, D3D12Pipe::RaytracingShaderRecord &el)
+{
+  SERIALISE_MEMBER(index);
+  SERIALISE_MEMBER(stage);
+  SERIALISE_MEMBER(exportName);
+  SERIALISE_MEMBER(hitGroupName);
+  SERIALISE_MEMBER(shaderTableResourceId);
+  SERIALISE_MEMBER(shaderTableByteOffset);
+  SERIALISE_MEMBER(recordByteOffset);
+  SERIALISE_MEMBER(recordByteSize);
+  SERIALISE_MEMBER(localRootByteSize);
+  SERIALISE_MEMBER(localRootSignature);
+  SERIALISE_MEMBER(shaderResourceId);
+  // don't serialise reflection, just set it to NULL. See the definition of SERIALISE_MEMBER_DUMMY
+  SERIALISE_MEMBER_OPT_EMPTY(reflection);
+  SERIALISE_MEMBER(entryPoint);
+
+  SIZE_CHECK(192);
+}
+
+template <typename SerialiserType>
+void DoSerialise(SerialiserType &ser, D3D12Pipe::RaytracingShaderTable &el)
+{
+  SERIALISE_MEMBER(resourceId);
+  SERIALISE_MEMBER(byteOffset);
+  SERIALISE_MEMBER(gpuAddress);
+  SERIALISE_MEMBER(byteSize);
+  SERIALISE_MEMBER(stride);
+  SERIALISE_MEMBER(records);
+
+  SIZE_CHECK(64);
+}
+
+template <typename SerialiserType>
 void DoSerialise(SerialiserType &ser, D3D12Pipe::RaytracingState &el)
 {
   SERIALISE_MEMBER(stateObjectResourceId);
@@ -1697,8 +1731,13 @@ void DoSerialise(SerialiserType &ser, D3D12Pipe::RaytracingState &el)
   SERIALISE_MEMBER(pipelineFlags);
   SERIALISE_MEMBER(shaders);
   SERIALISE_MEMBER(hitGroups);
+  SERIALISE_MEMBER(dispatchDimensions);
+  SERIALISE_MEMBER(raygenTable);
+  SERIALISE_MEMBER(missTable);
+  SERIALISE_MEMBER(hitGroupTable);
+  SERIALISE_MEMBER(callableTable);
 
-  SIZE_CHECK(176);
+  SIZE_CHECK(448);
 }
 
 template <typename SerialiserType>
@@ -1741,7 +1780,7 @@ void DoSerialise(SerialiserType &ser, D3D12Pipe::State &el)
 
   SERIALISE_MEMBER(resourceStates);
 
-  SIZE_CHECK(968);
+  SIZE_CHECK(1240);
 }
 
 #pragma endregion D3D12 pipeline state

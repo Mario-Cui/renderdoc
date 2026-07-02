@@ -766,20 +766,20 @@ D3D12PipelineStateViewer::D3D12PipelineStateViewer(ICaptureContext &ctx,
     m_Common.SetupResourceView(ui->rtLocalRootSignatures);
   }
 
-  auto setRTGroupSizePolicy = [](QWidget *widget, int verticalStretch) {
+  auto setRTGroupSizePolicy = [](QWidget *widget) {
     QSizePolicy policy(QSizePolicy::Preferred, QSizePolicy::Expanding);
     policy.setHorizontalStretch(0);
-    policy.setVerticalStretch(verticalStretch);
+    policy.setVerticalStretch(1);
     widget->setSizePolicy(policy);
   };
 
-  setRTGroupSizePolicy(ui->rtShadersGroup, 2);
-  setRTGroupSizePolicy(ui->rtLocalRootSignaturesGroup, 1);
-  setRTGroupSizePolicy(ui->rtHitGroupsGroup, 1);
+  setRTGroupSizePolicy(ui->rtShadersGroup);
+  setRTGroupSizePolicy(ui->rtLocalRootSignaturesGroup);
+  setRTGroupSizePolicy(ui->rtHitGroupsGroup);
 
   {
     m_RTSamplersGroup = new CollapseGroupBox(ui->rtScrollContents);
-    setRTGroupSizePolicy(m_RTSamplersGroup, 1);
+    setRTGroupSizePolicy(m_RTSamplersGroup);
     m_RTSamplersGroup->setTitle(tr("Samplers"));
     QHBoxLayout *layout = new QHBoxLayout(m_RTSamplersGroup);
     layout->setContentsMargins(2, 2, 2, 2);
@@ -798,7 +798,7 @@ D3D12PipelineStateViewer::D3D12PipelineStateViewer(ICaptureContext &ctx,
 
   {
     m_RTCBuffersGroup = new CollapseGroupBox(ui->rtScrollContents);
-    setRTGroupSizePolicy(m_RTCBuffersGroup, 1);
+    setRTGroupSizePolicy(m_RTCBuffersGroup);
     m_RTCBuffersGroup->setTitle(tr("Constant Buffers"));
     QHBoxLayout *layout = new QHBoxLayout(m_RTCBuffersGroup);
     layout->setContentsMargins(2, 2, 2, 2);
@@ -904,11 +904,15 @@ D3D12PipelineStateViewer::D3D12PipelineStateViewer(ICaptureContext &ctx,
   delete ui->rtShaderConfigsGroup;
   ui->rtScrollLayout->removeWidget(ui->rtLocalRootSignaturesGroup);
   ui->rtScrollLayout->removeWidget(ui->rtHitGroupsGroup);
-  ui->rtScrollLayout->setStretch(0, 2);
   ui->rtScrollLayout->insertWidget(1, ui->rtLocalRootSignaturesGroup, 1);
   ui->rtScrollLayout->insertWidget(2, ui->rtHitGroupsGroup, 1);
   ui->rtScrollLayout->insertWidget(3, m_RTSamplersGroup, 1);
   ui->rtScrollLayout->insertWidget(4, m_RTCBuffersGroup, 1);
+  ui->rtScrollLayout->setStretch(0, 1);
+  ui->rtScrollLayout->setStretch(1, 1);
+  ui->rtScrollLayout->setStretch(2, 1);
+  ui->rtScrollLayout->setStretch(3, 1);
+  ui->rtScrollLayout->setStretch(4, 1);
 
   // this is often changed just because we're changing some tab in the designer.
   ui->stagesTabs->setCurrentIndex(0);

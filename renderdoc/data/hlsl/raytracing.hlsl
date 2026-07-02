@@ -386,9 +386,15 @@ GPUAddress AlignRecordAddress(GPUAddress x)
 
     if(appCommand.MissShaderTable.SizeInBytes.x > 0)
     {
-      execute.shaderrecord_stride = appCommand.MissShaderTable.StrideInBytes.x;
-      execute.shaderrecord_count = appCommand.MissShaderTable.SizeInBytes.x /
-                                   max(1, appCommand.MissShaderTable.StrideInBytes.x);
+      uint shaderRecordStride = appCommand.MissShaderTable.StrideInBytes.x;
+      if(shaderRecordStride == 0)
+      {
+        shaderRecordStride = appCommand.MissShaderTable.SizeInBytes.x;
+        appCommand.MissShaderTable.StrideInBytes.x = shaderRecordStride;
+      }
+
+      execute.shaderrecord_stride = shaderRecordStride;
+      execute.shaderrecord_count = appCommand.MissShaderTable.SizeInBytes.x / shaderRecordStride;
       execute.sourceData = appCommand.MissShaderTable.StartAddress;
       execute.destData = outputBufferLocation;
       execute.dispatchDim = uint3(
@@ -404,9 +410,15 @@ GPUAddress AlignRecordAddress(GPUAddress x)
 
     if(appCommand.HitGroupTable.SizeInBytes.x > 0)
     {
-      execute.shaderrecord_stride = appCommand.HitGroupTable.StrideInBytes.x;
-      execute.shaderrecord_count =
-          appCommand.HitGroupTable.SizeInBytes.x / max(1, appCommand.HitGroupTable.StrideInBytes.x);
+      uint shaderRecordStride = appCommand.HitGroupTable.StrideInBytes.x;
+      if(shaderRecordStride == 0)
+      {
+        shaderRecordStride = appCommand.HitGroupTable.SizeInBytes.x;
+        appCommand.HitGroupTable.StrideInBytes.x = shaderRecordStride;
+      }
+
+      execute.shaderrecord_stride = shaderRecordStride;
+      execute.shaderrecord_count = appCommand.HitGroupTable.SizeInBytes.x / shaderRecordStride;
       execute.sourceData = appCommand.HitGroupTable.StartAddress;
       execute.destData = outputBufferLocation;
       execute.dispatchDim = uint3(
@@ -422,9 +434,16 @@ GPUAddress AlignRecordAddress(GPUAddress x)
 
     if(appCommand.CallableShaderTable.SizeInBytes.x > 0)
     {
-      execute.shaderrecord_stride = appCommand.CallableShaderTable.StrideInBytes.x;
-      execute.shaderrecord_count = appCommand.CallableShaderTable.SizeInBytes.x /
-                                   max(1, appCommand.CallableShaderTable.StrideInBytes.x);
+      uint shaderRecordStride = appCommand.CallableShaderTable.StrideInBytes.x;
+      if(shaderRecordStride == 0)
+      {
+        shaderRecordStride = appCommand.CallableShaderTable.SizeInBytes.x;
+        appCommand.CallableShaderTable.StrideInBytes.x = shaderRecordStride;
+      }
+
+      execute.shaderrecord_stride = shaderRecordStride;
+      execute.shaderrecord_count =
+          appCommand.CallableShaderTable.SizeInBytes.x / shaderRecordStride;
       execute.sourceData = appCommand.CallableShaderTable.StartAddress;
       execute.destData = outputBufferLocation;
       execute.dispatchDim = uint3(

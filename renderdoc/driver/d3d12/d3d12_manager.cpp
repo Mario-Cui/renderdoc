@@ -890,8 +890,10 @@ void D3D12RTManager::Verify(PatchedRayDispatch &r)
 
     if(wrappedDisp->MissShaderTable.SizeInBytes)
     {
-      if(unwrappedDisp->HitGroupTable.StrideInBytes == 0)
-        unwrappedDisp->HitGroupTable.StrideInBytes = unwrappedDisp->HitGroupTable.SizeInBytes;
+      if(wrappedDisp->MissShaderTable.StrideInBytes == 0)
+        wrappedDisp->MissShaderTable.StrideInBytes = wrappedDisp->MissShaderTable.SizeInBytes;
+      if(unwrappedDisp->MissShaderTable.StrideInBytes == 0)
+        unwrappedDisp->MissShaderTable.StrideInBytes = unwrappedDisp->MissShaderTable.SizeInBytes;
 
       RDCASSERTEQUAL(unwrappedDisp->MissShaderTable.StartAddress,
                      r.resources.patchScratchBuffer->Address() + offset);
@@ -923,6 +925,8 @@ void D3D12RTManager::Verify(PatchedRayDispatch &r)
     {
       if(wrappedDisp->HitGroupTable.StrideInBytes == 0)
         wrappedDisp->HitGroupTable.StrideInBytes = wrappedDisp->HitGroupTable.SizeInBytes;
+      if(unwrappedDisp->HitGroupTable.StrideInBytes == 0)
+        unwrappedDisp->HitGroupTable.StrideInBytes = unwrappedDisp->HitGroupTable.SizeInBytes;
 
       RDCASSERTEQUAL(unwrappedDisp->HitGroupTable.StartAddress,
                      r.resources.patchScratchBuffer->Address() + offset);
@@ -954,6 +958,9 @@ void D3D12RTManager::Verify(PatchedRayDispatch &r)
     {
       if(wrappedDisp->CallableShaderTable.StrideInBytes == 0)
         wrappedDisp->CallableShaderTable.StrideInBytes = wrappedDisp->CallableShaderTable.SizeInBytes;
+      if(unwrappedDisp->CallableShaderTable.StrideInBytes == 0)
+        unwrappedDisp->CallableShaderTable.StrideInBytes =
+            unwrappedDisp->CallableShaderTable.SizeInBytes;
 
       RDCASSERTEQUAL(unwrappedDisp->CallableShaderTable.StartAddress,
                      r.resources.patchScratchBuffer->Address() + offset);
@@ -1756,8 +1763,11 @@ PatchedRayDispatch D3D12RTManager::PatchRayDispatch(ID3D12GraphicsCommandList4 *
   // miss - optional
   if(ret.desc.MissShaderTable.SizeInBytes > 0)
   {
-    recordInfo.shaderrecord_count = uint32_t(ret.desc.MissShaderTable.SizeInBytes /
-                                             RDCMAX(1ULL, ret.desc.MissShaderTable.StrideInBytes));
+    if(ret.desc.MissShaderTable.StrideInBytes == 0)
+      ret.desc.MissShaderTable.StrideInBytes = ret.desc.MissShaderTable.SizeInBytes;
+
+    recordInfo.shaderrecord_count =
+        uint32_t(ret.desc.MissShaderTable.SizeInBytes / ret.desc.MissShaderTable.StrideInBytes);
     recordInfo.shaderrecord_stride = uint32_t(ret.desc.MissShaderTable.StrideInBytes);
 
     unwrappedCmd->SetComputeRoot32BitConstants((UINT)D3D12PatchRayDispatchParam::RecordCB,
@@ -1783,8 +1793,11 @@ PatchedRayDispatch D3D12RTManager::PatchRayDispatch(ID3D12GraphicsCommandList4 *
   // hitgroups - optional
   if(desc.HitGroupTable.SizeInBytes > 0)
   {
-    recordInfo.shaderrecord_count = uint32_t(ret.desc.HitGroupTable.SizeInBytes /
-                                             RDCMAX(1ULL, ret.desc.HitGroupTable.StrideInBytes));
+    if(ret.desc.HitGroupTable.StrideInBytes == 0)
+      ret.desc.HitGroupTable.StrideInBytes = ret.desc.HitGroupTable.SizeInBytes;
+
+    recordInfo.shaderrecord_count =
+        uint32_t(ret.desc.HitGroupTable.SizeInBytes / ret.desc.HitGroupTable.StrideInBytes);
     recordInfo.shaderrecord_stride = uint32_t(ret.desc.HitGroupTable.StrideInBytes);
 
     unwrappedCmd->SetComputeRoot32BitConstants((UINT)D3D12PatchRayDispatchParam::RecordCB,
@@ -1810,9 +1823,11 @@ PatchedRayDispatch D3D12RTManager::PatchRayDispatch(ID3D12GraphicsCommandList4 *
   // callables - optional
   if(desc.CallableShaderTable.SizeInBytes > 0)
   {
-    recordInfo.shaderrecord_count =
-        uint32_t(ret.desc.CallableShaderTable.SizeInBytes /
-                 RDCMAX(1ULL, ret.desc.CallableShaderTable.StrideInBytes));
+    if(ret.desc.CallableShaderTable.StrideInBytes == 0)
+      ret.desc.CallableShaderTable.StrideInBytes = ret.desc.CallableShaderTable.SizeInBytes;
+
+    recordInfo.shaderrecord_count = uint32_t(ret.desc.CallableShaderTable.SizeInBytes /
+                                             ret.desc.CallableShaderTable.StrideInBytes);
     recordInfo.shaderrecord_stride = uint32_t(ret.desc.CallableShaderTable.StrideInBytes);
 
     unwrappedCmd->SetComputeRoot32BitConstants((UINT)D3D12PatchRayDispatchParam::RecordCB,

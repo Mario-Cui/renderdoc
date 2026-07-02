@@ -114,17 +114,18 @@ private:
 
   void addResourceRow(const D3D12ViewTag &view, const ShaderResource *shaderInput, bool spacesUsed,
                       RDTreeWidget *resources);
-  void addRaytracingDescriptorRows(const ShaderReflection *refl,
-                                   const rdcarray<UsedDescriptor> &descriptors, bool spacesUsed);
+  void addRaytracingDescriptorRows(const D3D12Pipe::RaytracingShaderRecord *record,
+                                   const rdcarray<UsedDescriptor> &descriptors,
+                                   ShaderStage stageFilter);
 
   void clearShaderState(RDLabel *pipeline, RDLabel *shader, RDLabel *rootSig, RDTreeWidget *tex,
                         RDTreeWidget *samp, RDTreeWidget *cbuffer, RDTreeWidget *uavs);
   void setState();
   void clearState();
   void setRaytracingRecordDetails(const D3D12Pipe::RaytracingShaderRecord *record,
-                                  uint32_t tableIndex, uint32_t recordIndex);
+                                  const QVariant &tag);
   void addRaytracingShaderReflectionRows(const D3D12Pipe::RaytracingShaderRecord *record,
-                                         uint32_t tableIndex, uint32_t recordIndex);
+                                         const QVariant &tag);
 
   void setInactiveRow(RDTreeWidgetItem *node);
   void setEmptyRow(RDTreeWidgetItem *node);

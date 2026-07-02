@@ -1724,6 +1724,35 @@ static const D3D12Pipe::RaytracingHitGroup *FindRaytracingHitGroup(
   return NULL;
 }
 
+static const D3D12Pipe::RaytracingShader *FindRaytracingShaderForRecordStage(
+    const D3D12Pipe::RaytracingState &state, const D3D12Pipe::RaytracingShaderRecord &record,
+    ShaderStage stage)
+{
+  if(stage == ShaderStage::Count)
+    return NULL;
+
+  const D3D12Pipe::RaytracingShader *stageMatch = NULL;
+  bool multipleStageMatches = false;
+
+  for(const D3D12Pipe::RaytracingShader &shader : state.shaders)
+  {
+    if(shader.stage != stage)
+      continue;
+
+    if(shader.name == record.exportName || shader.entryPoint == record.exportName ||
+       (!record.entryPoint.empty() &&
+        (shader.name == record.entryPoint || shader.entryPoint == record.entryPoint)))
+      return &shader;
+
+    if(stageMatch == NULL)
+      stageMatch = &shader;
+    else
+      multipleStageMatches = true;
+  }
+
+  return multipleStageMatches ? NULL : stageMatch;
+}
+
 static void ApplyRaytracingRecordExport(D3D12Pipe::RaytracingShaderRecord &record,
                                         const D3D12Pipe::RaytracingState &state,
                                         const rdcstr &exportName)
@@ -3571,18 +3600,18 @@ static bool FindRaytracingDescriptorAccess(const D3D12Pipe::RaytracingState &rt,
                                             stateObjectStore, false, access);
 }
 
-static void AddRaytracingDescriptorAccesses(rdcarray<DescriptorAccess> &ret,
-                                            const D3D12Pipe::RaytracingState &rt,
-                                            const D3D12Pipe::RaytracingShaderRecord &record,
-                                            ResourceId stateObjectStore, uint32_t tableIndex,
-                                            uint32_t recordIndex)
+static void AddRaytracingShaderDescriptorAccesses(rdcarray<DescriptorAccess> &ret,
+                                                  const D3D12Pipe::RaytracingState &rt,
+                                                  const D3D12Pipe::RaytracingShaderRecord &record,
+                                                  const ShaderReflection *refl, ShaderStage stage,
+                                                  ResourceId stateObjectStore,
+                                                  uint32_t tableIndex, uint32_t recordIndex)
 {
-  const ShaderReflection *refl = record.reflection;
-  if(refl == NULL || record.stage == ShaderStage::Count)
+  if(refl == NULL || stage == ShaderStage::Count)
     return;
 
   auto initAccess = [&](DescriptorAccess &access) {
-    access.stage = record.stage;
+    access.stage = stage;
     access.shaderRecordTable = tableIndex;
     access.shaderRecordIndex = recordIndex;
   };
@@ -3658,6 +3687,55 @@ static void AddRaytracingDescriptorAccesses(rdcarray<DescriptorAccess> &ret,
 
   RDCASSERT(refl->readWriteResources.size() < 0xffff, refl->readWriteResources.size());
   addShaderResources(refl->readWriteResources, DescriptorCategory::ReadWriteResource);
+}
+
+static void AddRaytracingDescriptorAccesses(rdcarray<DescriptorAccess> &ret,
+                                            const D3D12Pipe::RaytracingState &rt,
+                                            const D3D12Pipe::RaytracingShaderRecord &record,
+                                            ResourceId stateObjectStore, uint32_t tableIndex,
+                                            uint32_t recordIndex)
+{
+  if(!record.hitGroupName.empty())
+  {
+    const D3D12Pipe::RaytracingHitGroup *hitGroup = FindRaytracingHitGroup(rt, record.hitGroupName);
+    if(hitGroup)
+    {
+      struct HitGroupShader
+      {
+        rdcstr name;
+        ShaderStage stage;
+      };
+
+      const HitGroupShader shaders[] = {
+          {hitGroup->closestHit, ShaderStage::ClosestHit},
+          {hitGroup->anyHit, ShaderStage::AnyHit},
+          {hitGroup->intersection, ShaderStage::Intersection},
+      };
+
+      for(const HitGroupShader &shader : shaders)
+      {
+        if(shader.name.empty())
+          continue;
+
+        const D3D12Pipe::RaytracingShader *rtShader = FindRaytracingShader(rt, shader.name);
+        if(rtShader == NULL)
+          continue;
+
+        AddRaytracingShaderDescriptorAccesses(ret, rt, record, rtShader->reflection, shader.stage,
+                                              stateObjectStore, tableIndex, recordIndex);
+      }
+
+      return;
+    }
+  }
+
+  const D3D12Pipe::RaytracingShader *rtShader =
+      FindRaytracingShaderForRecordStage(rt, record, record.stage);
+  const ShaderReflection *reflection = rtShader != NULL ? rtShader->reflection : record.reflection;
+  ShaderStage stage = rtShader != NULL ? rtShader->stage : record.stage;
+
+  AddRaytracingShaderDescriptorAccesses(ret, rt, record, reflection, stage, stateObjectStore,
+                                        tableIndex, recordIndex);
 }
 
 rdcarray<DescriptorAccess> D3D12Replay::GetDescriptorAccess(uint32_t eventId)

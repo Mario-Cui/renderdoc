@@ -68,6 +68,10 @@ struct D3D12CBufTag
       : descriptor(descriptor), index(index), arrayElement(arrayElement)
   {
   }
+  D3D12CBufTag(ShaderStage stage, uint32_t index, uint32_t arrayElement, Descriptor descriptor)
+      : descriptor(descriptor), index(index), arrayElement(arrayElement), stage(stage)
+  {
+  }
   D3D12CBufTag(Descriptor descriptor)
       : descriptor(descriptor), index(DescriptorAccess::NoShaderBinding), arrayElement(0)
   {
@@ -75,6 +79,7 @@ struct D3D12CBufTag
 
   Descriptor descriptor;
   uint32_t index, arrayElement;
+  ShaderStage stage = ShaderStage::Count;
 };
 
 Q_DECLARE_METATYPE(D3D12CBufTag);
@@ -116,9 +121,15 @@ struct D3D12RTRecordTag
 {
   D3D12RTRecordTag() = default;
   D3D12RTRecordTag(uint32_t t, uint32_t r) : table(t), record(r) {}
+  D3D12RTRecordTag(uint32_t t, uint32_t r, ShaderStage s, const QString &n)
+      : table(t), record(r), stageFilter(s), shaderName(n)
+  {
+  }
 
   uint32_t table = 0;
   uint32_t record = 0;
+  ShaderStage stageFilter = ShaderStage::Count;
+  QString shaderName;
 };
 
 Q_DECLARE_METATYPE(D3D12RTRecordTag);
@@ -179,6 +190,103 @@ static const D3D12Pipe::RaytracingShaderTable *GetRTShaderTable(
     case RTShaderTable::HitGroup: return &rt.hitGroupTable;
     case RTShaderTable::Callable: return &rt.callableTable;
   }
+
+  return NULL;
+}
+
+static const D3D12Pipe::RaytracingShader *FindRTShader(const D3D12Pipe::RaytracingState &rt,
+                                                       const rdcstr &name)
+{
+  for(const D3D12Pipe::RaytracingShader &shader : rt.shaders)
+    if(shader.name == name)
+      return &shader;
+
+  return NULL;
+}
+
+static const D3D12Pipe::RaytracingHitGroup *FindRTHitGroup(const D3D12Pipe::RaytracingState &rt,
+                                                           const rdcstr &name)
+{
+  for(const D3D12Pipe::RaytracingHitGroup &hitGroup : rt.hitGroups)
+    if(hitGroup.name == name)
+      return &hitGroup;
+
+  return NULL;
+}
+
+static const D3D12Pipe::RaytracingShader *FindRTShaderForStage(
+    const D3D12Pipe::RaytracingState &rt, const D3D12Pipe::RaytracingShaderRecord *record,
+    ShaderStage stage)
+{
+  if(record == NULL)
+    return NULL;
+
+  if(stage == ShaderStage::ClosestHit || stage == ShaderStage::AnyHit ||
+     stage == ShaderStage::Intersection)
+  {
+    const D3D12Pipe::RaytracingHitGroup *hitGroup = FindRTHitGroup(rt, record->hitGroupName);
+    if(hitGroup == NULL)
+      return NULL;
+
+    if(stage == ShaderStage::ClosestHit)
+      return FindRTShader(rt, hitGroup->closestHit);
+    if(stage == ShaderStage::AnyHit)
+      return FindRTShader(rt, hitGroup->anyHit);
+    if(stage == ShaderStage::Intersection)
+      return FindRTShader(rt, hitGroup->intersection);
+  }
+
+  if(record->stage == stage)
+  {
+    const D3D12Pipe::RaytracingShader *stageMatch = NULL;
+    bool multipleStageMatches = false;
+
+    for(const D3D12Pipe::RaytracingShader &shader : rt.shaders)
+    {
+      if(shader.stage != stage)
+        continue;
+
+      if(shader.name == record->exportName || shader.entryPoint == record->exportName ||
+         (!record->entryPoint.empty() &&
+          (shader.name == record->entryPoint || shader.entryPoint == record->entryPoint)))
+        return &shader;
+
+      if(stageMatch == NULL)
+        stageMatch = &shader;
+      else
+        multipleStageMatches = true;
+    }
+
+    if(!multipleStageMatches)
+      return stageMatch;
+  }
+
+  return NULL;
+}
+
+static const D3D12Pipe::RaytracingShader *FindRTShaderForTag(
+    const D3D12Pipe::RaytracingState &rt, const D3D12Pipe::RaytracingShaderRecord *record,
+    const D3D12RTRecordTag &tag)
+{
+  if(tag.stageFilter != ShaderStage::Count)
+    return FindRTShaderForStage(rt, record, tag.stageFilter);
+
+  if(record != NULL && record->hitGroupName.empty())
+    return FindRTShaderForStage(rt, record, record->stage);
+
+  return NULL;
+}
+
+static const ShaderReflection *RTShaderReflectionForTag(
+    const D3D12Pipe::RaytracingState &rt, const D3D12Pipe::RaytracingShaderRecord *record,
+    const D3D12RTRecordTag &tag)
+{
+  const D3D12Pipe::RaytracingShader *shader = FindRTShaderForTag(rt, record, tag);
+  if(shader != NULL && shader->reflection != NULL)
+    return shader->reflection;
+
+  if(record != NULL && record->hitGroupName.empty() && tag.stageFilter == ShaderStage::Count)
+    return record->reflection;
 
   return NULL;
 }
@@ -447,23 +555,11 @@ D3D12PipelineStateViewer::D3D12PipelineStateViewer(ICaptureContext &ctx,
                    &D3D12PipelineStateViewer::predicateView_clicked);
   QObject::connect(ui->rtShaders, &RDTreeWidget::itemActivated, this,
                    &D3D12PipelineStateViewer::rtShader_itemActivated);
+  ui->rtShaders->setRootIsDecorated(true);
   QObject::connect(ui->rtShaders, &RDTreeWidget::itemSelectionChanged, this, [this]() {
     RDTreeWidgetItem *selected = ui->rtShaders->selectedItem();
-    uint32_t tableIndex = DescriptorAccess::NoShaderRecord;
-    uint32_t recordIndex = DescriptorAccess::NoShaderRecord;
-
-    if(selected != NULL)
-    {
-      QVariant tag = selected->tag();
-      if(tag.canConvert<D3D12RTRecordTag>())
-      {
-        D3D12RTRecordTag recordTag = tag.value<D3D12RTRecordTag>();
-        tableIndex = recordTag.table;
-        recordIndex = recordTag.record;
-      }
-    }
-
-    setRaytracingRecordDetails(raytracingRecordForItem(selected), tableIndex, recordIndex);
+    setRaytracingRecordDetails(raytracingRecordForItem(selected),
+                               selected != NULL ? selected->tag() : QVariant());
   });
   QObject::connect(ui->rtHitGroups, &RDTreeWidget::itemActivated, this,
                    &D3D12PipelineStateViewer::resource_itemActivated);
@@ -1419,13 +1515,43 @@ void D3D12PipelineStateViewer::addResourceRow(const D3D12ViewTag &view,
   }
 }
 
-void D3D12PipelineStateViewer::addRaytracingDescriptorRows(
-    const ShaderReflection *refl, const rdcarray<UsedDescriptor> &descriptors, bool spacesUsed)
+static bool ShaderReflectionUsesSpaces(const ShaderReflection *refl)
 {
+  if(refl == NULL)
+    return false;
+
+  bool spacesUsed = false;
+  for(const ConstantBlock &bind : refl->constantBlocks)
+    spacesUsed |= bind.fixedBindSetOrSpace > 0;
+  for(const ShaderSampler &bind : refl->samplers)
+    spacesUsed |= bind.fixedBindSetOrSpace > 0;
+  for(const ShaderResource &bind : refl->readOnlyResources)
+    spacesUsed |= bind.fixedBindSetOrSpace > 0;
+  for(const ShaderResource &bind : refl->readWriteResources)
+    spacesUsed |= bind.fixedBindSetOrSpace > 0;
+
+  return spacesUsed;
+}
+
+void D3D12PipelineStateViewer::addRaytracingDescriptorRows(
+    const D3D12Pipe::RaytracingShaderRecord *record, const rdcarray<UsedDescriptor> &descriptors,
+    ShaderStage stageFilter)
+{
+  const D3D12Pipe::RaytracingState &rt = m_Ctx.CurD3D12PipelineState()->raytracing;
+
   for(const UsedDescriptor &used : descriptors)
   {
     if(used.access.type == DescriptorType::Unknown)
       continue;
+
+    if(stageFilter != ShaderStage::Count && used.access.stage != stageFilter)
+      continue;
+
+    const D3D12Pipe::RaytracingShader *shader =
+        FindRTShaderForStage(rt, record, used.access.stage);
+    const ShaderReflection *refl = shader != NULL ? shader->reflection
+                                                  : record != NULL ? record->reflection : NULL;
+    const bool spacesUsed = ShaderReflectionUsesSpaces(refl);
 
     if(IsConstantBlockDescriptor(used.access.type))
     {
@@ -1445,7 +1571,8 @@ void D3D12PipelineStateViewer::addRaytracingDescriptorRows(
           shaderBind = &refl->constantBlocks[used.access.index];
 
         cbuftag = QVariant::fromValue(
-            D3D12CBufTag(used.access.index, used.access.arrayElement, descriptor));
+            D3D12CBufTag(used.access.stage, used.access.index, used.access.arrayElement,
+                         descriptor));
       }
 
       bool filledSlot = (descriptor.resource != ResourceId());
@@ -2014,36 +2141,59 @@ static QString SamplerLODClamp(const SamplerDescriptor &samplerDescriptor)
                                                : QString::number(samplerDescriptor.maxLOD));
 }
 
-void D3D12PipelineStateViewer::addRaytracingShaderReflectionRows(
-    const D3D12Pipe::RaytracingShaderRecord *record, uint32_t tableIndex, uint32_t recordIndex)
+static bool SameRaytracingDescriptorBinding(const UsedDescriptor &a, const UsedDescriptor &b)
 {
-  if(record == NULL || record->reflection == NULL)
+  return a.access.type == b.access.type && a.access.descriptorStore == b.access.descriptorStore &&
+         a.access.byteOffset == b.access.byteOffset &&
+         a.access.arrayElement == b.access.arrayElement &&
+         a.descriptor.resource == b.descriptor.resource &&
+         a.descriptor.byteOffset == b.descriptor.byteOffset &&
+         a.descriptor.byteSize == b.descriptor.byteSize && a.descriptor.view == b.descriptor.view;
+}
+
+void D3D12PipelineStateViewer::addRaytracingShaderReflectionRows(
+    const D3D12Pipe::RaytracingShaderRecord *record, const QVariant &tag)
+{
+  if(record == NULL || !tag.canConvert<D3D12RTRecordTag>())
     return;
 
-  const ShaderReflection &refl = *record->reflection;
-
-  bool spacesUsed = false;
-  for(const ConstantBlock &bind : refl.constantBlocks)
-    spacesUsed |= bind.fixedBindSetOrSpace > 0;
-  for(const ShaderSampler &bind : refl.samplers)
-    spacesUsed |= bind.fixedBindSetOrSpace > 0;
-  for(const ShaderResource &bind : refl.readOnlyResources)
-    spacesUsed |= bind.fixedBindSetOrSpace > 0;
-  for(const ShaderResource &bind : refl.readWriteResources)
-    spacesUsed |= bind.fixedBindSetOrSpace > 0;
+  D3D12RTRecordTag recordTag = tag.value<D3D12RTRecordTag>();
 
   rdcarray<UsedDescriptor> descriptors;
   for(const UsedDescriptor &used : m_Ctx.CurPipelineState().GetAllUsedDescriptors())
   {
-    if(used.access.shaderRecordTable == tableIndex && used.access.shaderRecordIndex == recordIndex)
+    if(used.access.shaderRecordTable == recordTag.table &&
+       used.access.shaderRecordIndex == recordTag.record)
       descriptors.push_back(used);
   }
 
-  addRaytracingDescriptorRows(&refl, descriptors, spacesUsed);
+  if(!record->hitGroupName.empty() && recordTag.stageFilter == ShaderStage::Count)
+  {
+    rdcarray<UsedDescriptor> uniqueDescriptors;
+    for(const UsedDescriptor &used : descriptors)
+    {
+      bool duplicate = false;
+      for(const UsedDescriptor &existing : uniqueDescriptors)
+      {
+        if(SameRaytracingDescriptorBinding(used, existing))
+        {
+          duplicate = true;
+          break;
+        }
+      }
+
+      if(!duplicate)
+        uniqueDescriptors.push_back(used);
+    }
+
+    descriptors.swap(uniqueDescriptors);
+  }
+
+  addRaytracingDescriptorRows(record, descriptors, recordTag.stageFilter);
 }
 
 void D3D12PipelineStateViewer::setRaytracingRecordDetails(
-    const D3D12Pipe::RaytracingShaderRecord *record, uint32_t tableIndex, uint32_t recordIndex)
+    const D3D12Pipe::RaytracingShaderRecord *record, const QVariant &tag)
 {
   ui->rtLocalRootSignatures->beginUpdate();
   ui->rtLocalRootSignatures->clear();
@@ -2058,16 +2208,38 @@ void D3D12PipelineStateViewer::setRaytracingRecordDetails(
   m_RTCBuffers->clear();
 
   const D3D12Pipe::RaytracingState &rt = m_Ctx.CurD3D12PipelineState()->raytracing;
+  D3D12RTRecordTag recordTag;
+  const bool hasRecordTag = tag.canConvert<D3D12RTRecordTag>();
+  if(hasRecordTag)
+    recordTag = tag.value<D3D12RTRecordTag>();
 
   if(record)
   {
-    addRaytracingShaderReflectionRows(record, tableIndex, recordIndex);
+    addRaytracingShaderReflectionRows(record, tag);
+
+    const D3D12Pipe::RaytracingShader *selectedShader =
+        hasRecordTag ? FindRTShaderForTag(rt, record, recordTag) : NULL;
 
     QString shaderName = QString::fromUtf8(record->hitGroupName.empty() ? record->exportName.c_str()
                                                                         : record->hitGroupName.c_str());
-    QString stageName = record->stage == ShaderStage::Count
-                            ? tr("Unknown")
-                            : ToQStr(record->stage, GraphicsAPI::D3D12);
+    QString stageName;
+    if(recordTag.stageFilter != ShaderStage::Count)
+    {
+      stageName = ToQStr(recordTag.stageFilter, GraphicsAPI::D3D12);
+      if(selectedShader)
+        shaderName = QString::fromUtf8(selectedShader->name.c_str());
+      else if(!recordTag.shaderName.isEmpty())
+        shaderName = recordTag.shaderName;
+    }
+    else if(!record->hitGroupName.empty())
+    {
+      stageName = tr("HitGroup");
+    }
+    else
+    {
+      stageName = record->stage == ShaderStage::Count ? tr("Unknown")
+                                                      : ToQStr(record->stage, GraphicsAPI::D3D12);
+    }
 
     if(shaderName.isEmpty())
       shaderName = tr("Unknown");
@@ -2075,7 +2247,9 @@ void D3D12PipelineStateViewer::setRaytracingRecordDetails(
     QString shaderText = ToQStr(rt.stateObjectResourceId) + tr(" - %1").arg(stageName);
     if(!shaderName.isEmpty())
       shaderText += tr(" - %1").arg(shaderName);
-    if(!record->entryPoint.empty())
+    if(selectedShader && !selectedShader->entryPoint.empty())
+      shaderText += tr(" (%1)").arg(QString::fromUtf8(selectedShader->entryPoint.c_str()));
+    else if(record->hitGroupName.empty() && !record->entryPoint.empty())
       shaderText += tr(" (%1)").arg(QString::fromUtf8(record->entryPoint.c_str()));
 
     ui->rtMaxTraceRecursionDepth->setVisible(true);
@@ -2096,8 +2270,11 @@ void D3D12PipelineStateViewer::setRaytracingRecordDetails(
     m_RTLocalRootSigButton->setVisible(false);
   }
 
-  const bool openable =
-      record != NULL && record->reflection != NULL && record->shaderResourceId != ResourceId();
+  const D3D12Pipe::RaytracingShader *selectedShader =
+      record != NULL && hasRecordTag ? FindRTShaderForTag(rt, record, recordTag) : NULL;
+  const ShaderReflection *selectedReflection =
+      record != NULL && hasRecordTag ? RTShaderReflectionForTag(rt, record, recordTag) : NULL;
+  const bool openable = selectedReflection != NULL;
   m_RTShaderViewButton->setEnabled(openable);
   m_RTShaderSaveButton->setEnabled(openable);
 
@@ -2145,7 +2322,10 @@ void D3D12PipelineStateViewer::setRaytracingState(const D3D12Pipe::RaytracingSta
                               : ToQStr(record.stage, GraphicsAPI::D3D12);
       QString exportName = QString::fromUtf8(record.exportName.c_str());
       if(!record.hitGroupName.empty())
+      {
+        stageName = tr("HitGroup");
         exportName = QString::fromUtf8(record.hitGroupName.c_str());
+      }
 
       RDTreeWidgetItem *node = new RDTreeWidgetItem({
           RTTableName(tableType),
@@ -2155,10 +2335,63 @@ void D3D12PipelineStateViewer::setRaytracingState(const D3D12Pipe::RaytracingSta
       });
       node->setTag(QVariant::fromValue(D3D12RTRecordTag((uint32_t)tableType, (uint32_t)i)));
 
-      if(record.reflection == NULL || record.shaderResourceId == ResourceId())
+      if(record.hitGroupName.empty() &&
+         (record.reflection == NULL || record.shaderResourceId == ResourceId()))
         setInactiveRow(node);
 
       ui->rtShaders->addTopLevelItem(node);
+
+      if(tableType == RTShaderTable::HitGroup && !record.hitGroupName.empty())
+      {
+        const D3D12Pipe::RaytracingHitGroup *hitGroup = FindRTHitGroup(rt, record.hitGroupName);
+
+        struct HitGroupShader
+        {
+          rdcstr name;
+          ShaderStage stage;
+        };
+
+        const HitGroupShader shaders[] = {
+            {hitGroup != NULL ? hitGroup->closestHit : rdcstr(), ShaderStage::ClosestHit},
+            {hitGroup != NULL ? hitGroup->anyHit : rdcstr(), ShaderStage::AnyHit},
+            {hitGroup != NULL ? hitGroup->intersection : rdcstr(), ShaderStage::Intersection},
+        };
+
+        bool hasChildShader = false;
+        for(const HitGroupShader &shader : shaders)
+        {
+          if(shader.name.empty())
+            continue;
+
+          const D3D12Pipe::RaytracingShader *rtShader = FindRTShader(rt, shader.name);
+
+          RDTreeWidgetItem *child = new RDTreeWidgetItem({
+              QString(),
+              QString(),
+              ToQStr(shader.stage, GraphicsAPI::D3D12),
+              QString::fromUtf8(shader.name.c_str()),
+          });
+          child->setTag(QVariant::fromValue(D3D12RTRecordTag(
+              (uint32_t)tableType, (uint32_t)i, shader.stage,
+              QString::fromUtf8(shader.name.c_str()))));
+
+          if(rtShader == NULL || rtShader->reflection == NULL ||
+             rtShader->resourceId == ResourceId())
+            setInactiveRow(child);
+
+          node->addChild(child);
+          hasChildShader = true;
+        }
+
+        if(hasChildShader)
+        {
+          ui->rtShaders->expandItem(node);
+        }
+        else if(hitGroup == NULL)
+        {
+          setInactiveRow(node);
+        }
+      }
     }
   }
   if(ui->rtShaders->topLevelItemCount() > 0)
@@ -2168,21 +2401,12 @@ void D3D12PipelineStateViewer::setRaytracingState(const D3D12Pipe::RaytracingSta
   ui->rtShaders->endUpdate();
 
   RDTreeWidgetItem *selected = ui->rtShaders->selectedItem();
-  uint32_t tableIndex = DescriptorAccess::NoShaderRecord;
-  uint32_t recordIndex = DescriptorAccess::NoShaderRecord;
+  QVariant selectedTag;
 
   if(selected != NULL)
-  {
-    QVariant tag = selected->tag();
-    if(tag.canConvert<D3D12RTRecordTag>())
-    {
-      D3D12RTRecordTag recordTag = tag.value<D3D12RTRecordTag>();
-      tableIndex = recordTag.table;
-      recordIndex = recordTag.record;
-    }
-  }
+    selectedTag = selected->tag();
 
-  setRaytracingRecordDetails(raytracingRecordForItem(selected), tableIndex, recordIndex);
+  setRaytracingRecordDetails(raytracingRecordForItem(selected), selectedTag);
 }
 
 void D3D12PipelineStateViewer::setState()
@@ -3397,6 +3621,18 @@ void D3D12PipelineStateViewer::resource_itemActivated(RDTreeWidgetItem *item, in
   else if(tag.canConvert<D3D12ViewTag>())
   {
     D3D12ViewTag view = tag.value<D3D12ViewTag>();
+    if(record != NULL)
+    {
+      const D3D12Pipe::RaytracingShader *shader =
+          FindRTShaderForStage(m_Ctx.CurD3D12PipelineState()->raytracing, record,
+                               view.access.stage);
+      if(shader != NULL)
+      {
+        reflection = shader->reflection;
+        shaderResourceId = shader->resourceId;
+      }
+    }
+
     tex = m_Ctx.GetTexture(view.descriptor.resource);
     buf = m_Ctx.GetBuffer(view.descriptor.resource);
     typeCast = view.descriptor.format.compType;
@@ -3512,7 +3748,7 @@ void D3D12PipelineStateViewer::cbuffer_itemActivated(RDTreeWidgetItem *item, int
 
   if(rtCBuf)
   {
-    if(record == NULL || record->reflection == NULL)
+    if(record == NULL)
       return;
 
     if(cb.index == DescriptorAccess::NoShaderBinding)
@@ -3534,7 +3770,19 @@ void D3D12PipelineStateViewer::cbuffer_itemActivated(RDTreeWidgetItem *item, int
       return;
 
     D3D12RTRecordTag recordTag = selectedTag.value<D3D12RTRecordTag>();
-    IBufferViewer *prev = m_Ctx.ViewConstantBuffer(record->stage, cb.index, cb.arrayElement,
+
+    ShaderStage rtStage = cb.stage;
+    if(rtStage == ShaderStage::Count)
+      rtStage = recordTag.stageFilter;
+    if(rtStage == ShaderStage::Count)
+      rtStage = record->stage;
+
+    const D3D12Pipe::RaytracingShader *shader =
+        FindRTShaderForStage(m_Ctx.CurD3D12PipelineState()->raytracing, record, rtStage);
+    if(shader == NULL || shader->reflection == NULL)
+      return;
+
+    IBufferViewer *prev = m_Ctx.ViewConstantBuffer(rtStage, cb.index, cb.arrayElement,
                                                    recordTag.table, recordTag.record);
 
     m_Ctx.AddDockWindow(prev->Widget(), DockReference::TransientPopupArea, this, 0.3f);
@@ -3776,7 +4024,6 @@ void D3D12PipelineStateViewer::rtShader_itemActivated(RDTreeWidgetItem *item, in
   (void)column;
 
   ui->rtShaders->setSelectedItem(item);
-  rtShaderView_clicked();
 }
 
 void D3D12PipelineStateViewer::rtShaderView_clicked()
@@ -3784,12 +4031,20 @@ void D3D12PipelineStateViewer::rtShaderView_clicked()
   const D3D12Pipe::RaytracingShaderRecord *record =
       raytracingRecordForItem(ui->rtShaders->selectedItem());
 
-  if(record == NULL || record->shaderResourceId == ResourceId() || record->reflection == NULL)
+  QVariant selectedTag = ui->rtShaders->selectedItem() ? ui->rtShaders->selectedItem()->tag()
+                                                       : QVariant();
+  if(record == NULL || !selectedTag.canConvert<D3D12RTRecordTag>())
+    return;
+
+  const ShaderReflection *reflection =
+      RTShaderReflectionForTag(m_Ctx.CurD3D12PipelineState()->raytracing, record,
+                               selectedTag.value<D3D12RTRecordTag>());
+
+  if(reflection == NULL)
     return;
 
   IShaderViewer *shad =
-      m_Ctx.ViewShader(record->reflection,
-                       m_Ctx.CurD3D12PipelineState()->raytracing.stateObjectResourceId);
+      m_Ctx.ViewShader(reflection, m_Ctx.CurD3D12PipelineState()->raytracing.stateObjectResourceId);
 
   m_Ctx.AddDockWindow(shad->Widget(), DockReference::AddTo, this);
 }
@@ -3799,10 +4054,19 @@ void D3D12PipelineStateViewer::rtShaderSave_clicked()
   const D3D12Pipe::RaytracingShaderRecord *record =
       raytracingRecordForItem(ui->rtShaders->selectedItem());
 
-  if(record == NULL || record->shaderResourceId == ResourceId() || record->reflection == NULL)
+  QVariant selectedTag = ui->rtShaders->selectedItem() ? ui->rtShaders->selectedItem()->tag()
+                                                       : QVariant();
+  if(record == NULL || !selectedTag.canConvert<D3D12RTRecordTag>())
     return;
 
-  m_Common.SaveShaderFile(record->reflection);
+  const ShaderReflection *reflection =
+      RTShaderReflectionForTag(m_Ctx.CurD3D12PipelineState()->raytracing, record,
+                               selectedTag.value<D3D12RTRecordTag>());
+
+  if(reflection == NULL)
+    return;
+
+  m_Common.SaveShaderFile(reflection);
 }
 
 QVariantList D3D12PipelineStateViewer::exportViewHTML(const Descriptor &descriptor, bool rw,
@@ -4370,21 +4634,42 @@ void D3D12PipelineStateViewer::exportHTML(QXmlStreamWriter &xml,
                                 : ToQStr(record.stage, GraphicsAPI::D3D12);
         QString exportName = QString::fromUtf8(record.exportName.c_str());
         if(!record.hitGroupName.empty())
+        {
+          stageName = tr("HitGroup");
           exportName = QString::fromUtf8(record.hitGroupName.c_str());
+        }
 
-        rows.push_back({RTTableName(tableType), record.index, stageName, exportName,
-                        QString::fromUtf8(record.entryPoint.c_str()),
-                        ToQStr(record.shaderTableResourceId), qulonglong(record.recordByteOffset),
-                        qulonglong(record.recordByteSize),
-                        RootSignatureSummary(record.localRootSignature)});
+        rows.push_back({RTTableName(tableType), record.index, stageName, exportName});
+
+        if(tableType == RTShaderTable::HitGroup && !record.hitGroupName.empty())
+        {
+          const D3D12Pipe::RaytracingHitGroup *hitGroup = FindRTHitGroup(rt, record.hitGroupName);
+
+          struct HitGroupShader
+          {
+            rdcstr name;
+            ShaderStage stage;
+          };
+
+          const HitGroupShader shaders[] = {
+              {hitGroup != NULL ? hitGroup->closestHit : rdcstr(), ShaderStage::ClosestHit},
+              {hitGroup != NULL ? hitGroup->anyHit : rdcstr(), ShaderStage::AnyHit},
+              {hitGroup != NULL ? hitGroup->intersection : rdcstr(), ShaderStage::Intersection},
+          };
+
+          for(const HitGroupShader &shader : shaders)
+          {
+            if(shader.name.empty())
+              continue;
+
+            rows.push_back({QString(), QString(), ToQStr(shader.stage, GraphicsAPI::D3D12),
+                            QString::fromUtf8(shader.name.c_str())});
+          }
+        }
       }
     }
 
-    m_Common.exportHTMLTable(
-        xml,
-        {tr("Table"), tr("Index"), tr("Stage"), tr("Export / Hit Group"), tr("Entry Point"),
-         tr("SBT Resource"), tr("Record Offset"), tr("Record Size"), tr("Local Root")},
-        rows);
+    m_Common.exportHTMLTable(xml, {tr("Table"), tr("Index"), tr("Stage"), tr("Name")}, rows);
   }
 
   {

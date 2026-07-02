@@ -3403,13 +3403,16 @@ void BufferViewer::OnEventChanged(uint32_t eventId)
     if(IsCBufferView())
     {
       UsedDescriptor cb = m_Ctx.CurPipelineState().GetConstantBlock(
-          m_CBufferSlot.stage, m_CBufferSlot.slot, m_CBufferSlot.arrayIdx);
+          m_CBufferSlot.stage, m_CBufferSlot.slot, m_CBufferSlot.arrayIdx,
+          m_CBufferSlot.shaderRecordTable, m_CBufferSlot.shaderRecordIndex);
       m_BufferID = cb.descriptor.resource;
       m_ByteOffset = cb.descriptor.byteOffset;
       m_ByteSize = cb.descriptor.byteSize;
 
       const ShaderReflection *reflection =
-          m_Ctx.CurPipelineState().GetShaderReflection(m_CBufferSlot.stage);
+          m_Ctx.CurPipelineState().GetShaderReflection(m_CBufferSlot.stage,
+                                                       m_CBufferSlot.shaderRecordTable,
+                                                       m_CBufferSlot.shaderRecordIndex);
       bufdata->cb.valid =
           (reflection != NULL && m_CBufferSlot.slot < reflection->constantBlocks.size());
       if(bufdata->cb.valid)
@@ -3426,11 +3429,22 @@ void BufferViewer::OnEventChanged(uint32_t eventId)
       else
         ui->setFormat->setToolTip(tr("Cannot specify custom format without backing memory"));
 
-      bufdata->cb.pipe = m_CBufferSlot.stage == ShaderStage::Compute
-                             ? m_Ctx.CurPipelineState().GetComputePipelineObject()
-                             : m_Ctx.CurPipelineState().GetGraphicsPipelineObject();
-      bufdata->cb.shader = m_Ctx.CurPipelineState().GetShader(m_CBufferSlot.stage);
-      bufdata->cb.entryPoint = m_Ctx.CurPipelineState().GetShaderEntryPoint(m_CBufferSlot.stage);
+      if(m_Ctx.CurPipelineState().IsCaptureD3D12() &&
+         m_CBufferSlot.shaderRecordTable != ~0U && m_Ctx.CurD3D12PipelineState() != NULL)
+      {
+        bufdata->cb.pipe = m_Ctx.CurD3D12PipelineState()->raytracing.stateObjectResourceId;
+      }
+      else
+      {
+        bufdata->cb.pipe = m_CBufferSlot.stage == ShaderStage::Compute
+                               ? m_Ctx.CurPipelineState().GetComputePipelineObject()
+                               : m_Ctx.CurPipelineState().GetGraphicsPipelineObject();
+      }
+      bufdata->cb.shader =
+          m_Ctx.CurPipelineState().GetShader(m_CBufferSlot.stage, m_CBufferSlot.shaderRecordTable,
+                                             m_CBufferSlot.shaderRecordIndex);
+      bufdata->cb.entryPoint = m_Ctx.CurPipelineState().GetShaderEntryPoint(
+          m_CBufferSlot.stage, m_CBufferSlot.shaderRecordTable, m_CBufferSlot.shaderRecordIndex);
 
       if(m_Format.isEmpty())
       {
@@ -3466,7 +3480,9 @@ void BufferViewer::OnEventChanged(uint32_t eventId)
       if(bufdata->cb.valid)
       {
         const ShaderReflection *reflection =
-            m_Ctx.CurPipelineState().GetShaderReflection(m_CBufferSlot.stage);
+            m_Ctx.CurPipelineState().GetShaderReflection(m_CBufferSlot.stage,
+                                                         m_CBufferSlot.shaderRecordTable,
+                                                         m_CBufferSlot.shaderRecordIndex);
 
         bufdata->inConfig.fixedVars.type.members =
             reflection->constantBlocks[m_CBufferSlot.slot].variables;
@@ -5172,9 +5188,11 @@ void BufferViewer::ViewBuffer(uint64_t byteOffset, uint64_t byteSize, ResourceId
   ui->formatSpecifier->setAutoFormat(format);
 }
 
-BufferViewer *BufferViewer::HasCBufferView(ShaderStage stage, uint32_t slot, uint32_t idx)
+BufferViewer *BufferViewer::HasCBufferView(ShaderStage stage, uint32_t slot, uint32_t idx,
+                                           uint32_t shaderRecordTable,
+                                           uint32_t shaderRecordIndex)
 {
-  CBufferSlot cbuffer = {stage, slot, idx};
+  CBufferSlot cbuffer = {stage, slot, idx, shaderRecordTable, shaderRecordIndex};
 
   for(BufferViewer *c : m_CBufferViews)
   {
@@ -5196,7 +5214,8 @@ BufferViewer *BufferViewer::GetFirstCBufferView(BufferViewer *exclude)
   return NULL;
 }
 
-void BufferViewer::ViewCBuffer(const ShaderStage stage, uint32_t slot, uint32_t idx)
+void BufferViewer::ViewCBuffer(const ShaderStage stage, uint32_t slot, uint32_t idx,
+                               uint32_t shaderRecordTable, uint32_t shaderRecordIndex)
 {
   if(!m_Ctx.IsCaptureLoaded())
     return;
@@ -5205,7 +5224,7 @@ void BufferViewer::ViewCBuffer(const ShaderStage stage, uint32_t slot, uint32_t 
   m_ByteOffset = 0;
   m_ByteSize = UINT64_MAX;
   m_BufferID = ResourceId();
-  m_CBufferSlot = {stage, slot, idx};
+  m_CBufferSlot = {stage, slot, idx, shaderRecordTable, shaderRecordIndex};
   m_TexSub = {0, 0, 0};
 
   updateLabelsAndLayout();
@@ -5530,7 +5549,9 @@ void BufferViewer::updateLabelsAndLayout()
       QString bufName;
 
       const ShaderReflection *reflection =
-          m_Ctx.CurPipelineState().GetShaderReflection(m_CBufferSlot.stage);
+          m_Ctx.CurPipelineState().GetShaderReflection(m_CBufferSlot.stage,
+                                                       m_CBufferSlot.shaderRecordTable,
+                                                       m_CBufferSlot.shaderRecordIndex);
 
       uint32_t arraySize = ~0U;
       if(reflection != NULL)
@@ -6109,9 +6130,11 @@ void BufferViewer::on_setFormat_toggled(bool checked)
   ui->formatSpecifier->setVisible(true);
 
   const ShaderReflection *reflection =
-      m_Ctx.CurPipelineState().GetShaderReflection(m_CBufferSlot.stage);
+      m_Ctx.CurPipelineState().GetShaderReflection(m_CBufferSlot.stage,
+                                                   m_CBufferSlot.shaderRecordTable,
+                                                   m_CBufferSlot.shaderRecordIndex);
 
-  if(m_CBufferSlot.slot >= reflection->constantBlocks.size())
+  if(reflection == NULL || m_CBufferSlot.slot >= reflection->constantBlocks.size())
   {
     ui->formatSpecifier->setVisible(false);
 

@@ -24,6 +24,56 @@
 
 #include <ctype.h>
 
+static const D3D12Pipe::RaytracingShaderTable *GetD3D12RTShaderTable(
+    const D3D12Pipe::RaytracingState &rt, ShaderStage stage)
+{
+  if(stage == ShaderStage::RayGen)
+    return &rt.raygenTable;
+  if(stage == ShaderStage::Miss)
+    return &rt.missTable;
+  if(stage == ShaderStage::Callable)
+    return &rt.callableTable;
+  if(stage == ShaderStage::Intersection || stage == ShaderStage::AnyHit ||
+     stage == ShaderStage::ClosestHit)
+    return &rt.hitGroupTable;
+
+  return NULL;
+}
+
+static const D3D12Pipe::RaytracingShaderRecord *GetD3D12RTShaderRecord(
+    const D3D12Pipe::RaytracingState &rt, uint32_t tableIndex, uint32_t recordIndex)
+{
+  const D3D12Pipe::RaytracingShaderTable *table = NULL;
+
+  switch(tableIndex)
+  {
+    case 0: table = &rt.raygenTable; break;
+    case 1: table = &rt.missTable; break;
+    case 2: table = &rt.hitGroupTable; break;
+    case 3: table = &rt.callableTable; break;
+    default: break;
+  }
+
+  if(table == NULL || recordIndex >= (uint32_t)table->records.size())
+    return NULL;
+
+  return &table->records[recordIndex];
+}
+
+static const D3D12Pipe::RaytracingShaderRecord *GetD3D12RTShaderRecord(
+    const D3D12Pipe::RaytracingState &rt, ShaderStage stage)
+{
+  const D3D12Pipe::RaytracingShaderTable *table = GetD3D12RTShaderTable(rt, stage);
+  if(table == NULL)
+    return NULL;
+
+  for(const D3D12Pipe::RaytracingShaderRecord &record : table->records)
+    if(record.stage == stage)
+      return &record;
+
+  return NULL;
+}
+
 rdcstr PipeState::GetResourceLayout(ResourceId id) const
 {
   if(IsCaptureLoaded())
@@ -79,6 +129,12 @@ rdcstr PipeState::Abbrev(ShaderStage stage) const
       case ShaderStage::Compute: return "CS";
       case ShaderStage::Amplification: return "AS";
       case ShaderStage::Mesh: return "MS";
+      case ShaderStage::RayGen: return "RGS";
+      case ShaderStage::Intersection: return "IS";
+      case ShaderStage::AnyHit: return "AHS";
+      case ShaderStage::ClosestHit: return "CHS";
+      case ShaderStage::Miss: return "Miss";
+      case ShaderStage::Callable: return "Call";
       default: break;
     }
   }
@@ -121,7 +177,13 @@ bool PipeState::IsD3D12Stage(ShaderStage stage) const
     case ShaderStage::Pixel:
     case ShaderStage::Compute:
     case ShaderStage::Amplification:
-    case ShaderStage::Mesh: return true;
+    case ShaderStage::Mesh:
+    case ShaderStage::RayGen:
+    case ShaderStage::Intersection:
+    case ShaderStage::AnyHit:
+    case ShaderStage::ClosestHit:
+    case ShaderStage::Miss:
+    case ShaderStage::Callable: return true;
     default: return false;
   }
 }
@@ -294,7 +356,8 @@ Scissor PipeState::GetScissor(uint32_t index) const
   return ret;
 }
 
-const ShaderReflection *PipeState::GetShaderReflection(ShaderStage stage) const
+const ShaderReflection *PipeState::GetShaderReflection(ShaderStage stage, uint32_t shaderRecordTable,
+                                                       uint32_t shaderRecordIndex) const
 {
   if(IsCaptureLoaded())
   {
@@ -323,6 +386,21 @@ const ShaderReflection *PipeState::GetShaderReflection(ShaderStage stage) const
         case ShaderStage::Compute: return m_D3D12->computeShader.reflection;
         case ShaderStage::Amplification: return m_D3D12->ampShader.reflection;
         case ShaderStage::Mesh: return m_D3D12->meshShader.reflection;
+        case ShaderStage::RayGen:
+        case ShaderStage::Intersection:
+        case ShaderStage::AnyHit:
+        case ShaderStage::ClosestHit:
+        case ShaderStage::Miss:
+        case ShaderStage::Callable:
+        {
+          const D3D12Pipe::RaytracingShaderRecord *record = NULL;
+          if(shaderRecordTable != DescriptorAccess::NoShaderRecord)
+            record = GetD3D12RTShaderRecord(m_D3D12->raytracing, shaderRecordTable,
+                                            shaderRecordIndex);
+          else
+            record = GetD3D12RTShaderRecord(m_D3D12->raytracing, stage);
+          return record != NULL ? record->reflection : NULL;
+        }
         default: break;
       }
     }
@@ -397,8 +475,32 @@ uint32_t PipeState::MultiviewBroadcastCount() const
   return 1;
 }
 
-rdcstr PipeState::GetShaderEntryPoint(ShaderStage stage) const
+rdcstr PipeState::GetShaderEntryPoint(ShaderStage stage, uint32_t shaderRecordTable,
+                                      uint32_t shaderRecordIndex) const
 {
+  if(IsCaptureLoaded() && IsCaptureD3D12())
+  {
+    switch(stage)
+    {
+      case ShaderStage::RayGen:
+      case ShaderStage::Intersection:
+      case ShaderStage::AnyHit:
+      case ShaderStage::ClosestHit:
+      case ShaderStage::Miss:
+      case ShaderStage::Callable:
+      {
+        const D3D12Pipe::RaytracingShaderRecord *record = NULL;
+        if(shaderRecordTable != DescriptorAccess::NoShaderRecord)
+          record = GetD3D12RTShaderRecord(m_D3D12->raytracing, shaderRecordTable,
+                                          shaderRecordIndex);
+        else
+          record = GetD3D12RTShaderRecord(m_D3D12->raytracing, stage);
+        return record != NULL ? record->entryPoint : rdcstr();
+      }
+      default: break;
+    }
+  }
+
   if(IsCaptureLoaded() && IsCaptureVK())
   {
     switch(stage)
@@ -418,7 +520,8 @@ rdcstr PipeState::GetShaderEntryPoint(ShaderStage stage) const
   return "main";
 }
 
-ResourceId PipeState::GetShader(ShaderStage stage) const
+ResourceId PipeState::GetShader(ShaderStage stage, uint32_t shaderRecordTable,
+                                uint32_t shaderRecordIndex) const
 {
   if(IsCaptureLoaded())
   {
@@ -447,6 +550,21 @@ ResourceId PipeState::GetShader(ShaderStage stage) const
         case ShaderStage::Compute: return m_D3D12->computeShader.resourceId;
         case ShaderStage::Amplification: return m_D3D12->ampShader.resourceId;
         case ShaderStage::Mesh: return m_D3D12->meshShader.resourceId;
+        case ShaderStage::RayGen:
+        case ShaderStage::Intersection:
+        case ShaderStage::AnyHit:
+        case ShaderStage::ClosestHit:
+        case ShaderStage::Miss:
+        case ShaderStage::Callable:
+        {
+          const D3D12Pipe::RaytracingShaderRecord *record = NULL;
+          if(shaderRecordTable != DescriptorAccess::NoShaderRecord)
+            record = GetD3D12RTShaderRecord(m_D3D12->raytracing, shaderRecordTable,
+                                            shaderRecordIndex);
+          else
+            record = GetD3D12RTShaderRecord(m_D3D12->raytracing, stage);
+          return record != NULL ? record->shaderResourceId : ResourceId();
+        }
         default: break;
       }
     }
@@ -976,12 +1094,17 @@ void PipeState::ApplyVulkanDynamicOffsets(UsedDescriptor &used) const
   }
 }
 
-UsedDescriptor PipeState::GetConstantBlock(ShaderStage stage, uint32_t index, uint32_t arrayIdx) const
+UsedDescriptor PipeState::GetConstantBlock(ShaderStage stage, uint32_t index, uint32_t arrayIdx,
+                                           uint32_t shaderRecordTable,
+                                           uint32_t shaderRecordIndex) const
 {
   for(size_t i = 0; i < m_Access.size(); i++)
   {
     if(m_Access[i].stage == stage && IsConstantBlockDescriptor(m_Access[i].type) &&
-       m_Access[i].index == index && m_Access[i].arrayElement == arrayIdx)
+       m_Access[i].index == index && m_Access[i].arrayElement == arrayIdx &&
+       (shaderRecordTable == DescriptorAccess::NoShaderRecord ||
+        (m_Access[i].shaderRecordTable == shaderRecordTable &&
+         m_Access[i].shaderRecordIndex == shaderRecordIndex)))
     {
       if(i < m_Descriptors.size())
       {

@@ -95,11 +95,14 @@ public:
   explicit BufferViewer(ICaptureContext &ctx, bool meshview, QWidget *parent = 0);
   ~BufferViewer();
 
-  static BufferViewer *HasCBufferView(ShaderStage stage, uint32_t slot, uint32_t idx);
+  static BufferViewer *HasCBufferView(
+      ShaderStage stage, uint32_t slot, uint32_t idx, uint32_t shaderRecordTable = ~0U,
+      uint32_t shaderRecordIndex = ~0U);
   static BufferViewer *GetFirstCBufferView(BufferViewer *exclude);
   bool IsCBufferView() const { return m_CBufferSlot.stage != ShaderStage::Count; }
   void ViewBuffer(uint64_t byteOffset, uint64_t byteSize, ResourceId id, const rdcstr &format = "");
-  void ViewCBuffer(const ShaderStage stage, uint32_t slot, uint32_t idx);
+  void ViewCBuffer(const ShaderStage stage, uint32_t slot, uint32_t idx,
+                   uint32_t shaderRecordTable = ~0U, uint32_t shaderRecordIndex = ~0U);
   void ViewTexture(ResourceId id, const Subresource &sub, const rdcstr &format = "");
 
   // IBufferViewer
@@ -242,12 +245,15 @@ private:
     ShaderStage stage;
     uint32_t slot;
     uint32_t arrayIdx;
+    uint32_t shaderRecordTable;
+    uint32_t shaderRecordIndex;
 
     bool operator==(const CBufferSlot &c) const
     {
-      return stage == c.stage && slot == c.slot && arrayIdx == c.arrayIdx;
+      return stage == c.stage && slot == c.slot && arrayIdx == c.arrayIdx &&
+             shaderRecordTable == c.shaderRecordTable && shaderRecordIndex == c.shaderRecordIndex;
     }
-  } m_CBufferSlot = {ShaderStage::Count, 0, 0};
+  } m_CBufferSlot = {ShaderStage::Count, 0, 0, ~0U, ~0U};
 
   CBufferData m_CurCBuffer;
 

@@ -61,7 +61,8 @@ struct Following
 
   bool operator==(const Following &o);
   bool operator!=(const Following &o);
-  static void GetActionContext(ICaptureContext &ctx, bool &copy, bool &clear, bool &compute);
+  static void GetActionContext(ICaptureContext &ctx, bool &copy, bool &clear, bool &compute,
+                               bool &rayDispatch);
 
   int GetHighestMip(ICaptureContext &ctx);
   int GetFirstArraySlice(ICaptureContext &ctx);

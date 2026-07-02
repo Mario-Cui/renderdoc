@@ -2635,12 +2635,18 @@ void D3D12Replay::SavePipelineState(uint32_t eventId)
 
   D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
 
-  state.pipelineResourceId = rm->GetUnreplacedID(rs.pipe);
-
   WrappedID3D12PipelineState *pipe = NULL;
+  const bool activeRaytracing = rs.stateobj != ResourceId();
 
-  if(rs.pipe != ResourceId())
+  if(!activeRaytracing && rs.pipe != ResourceId())
     pipe = rm->GetResAs<WrappedID3D12PipelineState>(rs.pipe);
+
+  state.pipelineResourceId = activeRaytracing ? ResourceId() : rm->GetUnreplacedID(rs.pipe);
+
+  state.inputAssembly = D3D12Pipe::InputAssembly();
+  state.streamOut = D3D12Pipe::StreamOut();
+  state.rasterizer = D3D12Pipe::Rasterizer();
+  state.outputMerger = D3D12Pipe::OM();
 
   if(pipe && pipe->IsGraphics())
   {
@@ -2695,6 +2701,22 @@ void D3D12Replay::SavePipelineState(uint32_t eventId)
   /////////////////////////////////////////////////
   // Shaders
   /////////////////////////////////////////////////
+
+  {
+    auto clearShader = [](D3D12Pipe::Shader &shader, ShaderStage stage) {
+      shader = D3D12Pipe::Shader();
+      shader.stage = stage;
+    };
+
+    clearShader(state.vertexShader, ShaderStage::Vertex);
+    clearShader(state.hullShader, ShaderStage::Hull);
+    clearShader(state.domainShader, ShaderStage::Domain);
+    clearShader(state.geometryShader, ShaderStage::Geometry);
+    clearShader(state.pixelShader, ShaderStage::Pixel);
+    clearShader(state.computeShader, ShaderStage::Compute);
+    clearShader(state.ampShader, ShaderStage::Amplification);
+    clearShader(state.meshShader, ShaderStage::Mesh);
+  }
 
   if(pipe && pipe->IsCompute())
   {
@@ -2758,9 +2780,10 @@ void D3D12Replay::SavePipelineState(uint32_t eventId)
   /////////////////////////////////////////////////
   // Root Signature
   /////////////////////////////////////////////////
+  if(pipe)
   {
     const D3D12RenderState::RootSignature &sig =
-        (pipe && pipe->IsCompute()) ? rs.compute : rs.graphics;
+        pipe->IsCompute() ? rs.compute : rs.graphics;
     const rdcarray<D3D12RenderState::SignatureElement> &rootElems = sig.sigelems;
 
     WrappedID3D12RootSignature *rootSig = rm->GetResAs<WrappedID3D12RootSignature>(sig.rootsig);
@@ -2770,9 +2793,23 @@ void D3D12Replay::SavePipelineState(uint32_t eventId)
     else
       FillRootSignature(state.rootSignature, ResourceId(), D3D12RootSignature(), NULL);
   }
+  else
+  {
+    FillRootSignature(state.rootSignature, ResourceId(), D3D12RootSignature(), NULL);
+  }
 
-  FillRaytracingState(state.raytracing, rs.stateobj);
-  FillRaytracingDispatchState(state.raytracing, eventId);
+  /////////////////////////////////////////////////
+  // Raytracing
+  /////////////////////////////////////////////////
+  if(activeRaytracing)
+  {
+    FillRaytracingState(state.raytracing, rs.stateobj);
+    FillRaytracingDispatchState(state.raytracing, eventId);
+  }
+  else
+  {
+    state.raytracing = D3D12Pipe::RaytracingState();
+  }
 
   state.descriptorHeaps.clear();
   for(ResourceId id : rs.heaps)
@@ -3033,6 +3070,117 @@ void D3D12Replay::SavePipelineState(uint32_t eventId)
   }
 }
 
+static const uint32_t RaytracingRootDescriptorLocalBit = 0x80000000U;
+static const uint32_t RaytracingRootDescriptorStaticSamplerBit = 0x40000000U;
+static const uint32_t RaytracingRootDescriptorIndexMask = 0x3fffffffU;
+
+static uint32_t EncodeRaytracingRootDescriptorOffset(bool local, bool staticSampler,
+                                                     uint32_t rootIndex)
+{
+  return (local ? RaytracingRootDescriptorLocalBit : 0) |
+         (staticSampler ? RaytracingRootDescriptorStaticSamplerBit : 0) |
+         (rootIndex & RaytracingRootDescriptorIndexMask);
+}
+
+static const D3D12Pipe::RaytracingShaderTable *GetRaytracingShaderTable(
+    const D3D12Pipe::RaytracingState &rt, uint32_t tableIndex)
+{
+  switch(tableIndex)
+  {
+    case 0: return &rt.raygenTable;
+    case 1: return &rt.missTable;
+    case 2: return &rt.hitGroupTable;
+    case 3: return &rt.callableTable;
+  }
+
+  return NULL;
+}
+
+static const D3D12Pipe::RaytracingShaderRecord *GetRaytracingShaderRecord(
+    const D3D12Pipe::RaytracingState &rt, uint32_t tableIndex, uint32_t recordIndex)
+{
+  const D3D12Pipe::RaytracingShaderTable *table = GetRaytracingShaderTable(rt, tableIndex);
+
+  if(table == NULL || recordIndex >= (uint32_t)table->records.size())
+    return NULL;
+
+  return &table->records[recordIndex];
+}
+
+static uint64_t RaytracingRootConstantsByteSize(const D3D12Pipe::RootSignature &rootSig,
+                                                uint32_t rootIndexLimit = ~0U)
+{
+  uint64_t ret = 0;
+
+  const uint32_t numParams =
+      RDCMIN((uint32_t)rootSig.parameters.size(), rootIndexLimit);
+
+  for(uint32_t i = 0; i < numParams; i++)
+    ret += rootSig.parameters[i].constants.byteSize();
+
+  return ret;
+}
+
+static uint64_t GetRaytracingRootConstantsByteOffset(const D3D12Pipe::RaytracingState &rt,
+                                                     uint32_t tableIndex, uint32_t recordIndex,
+                                                     bool localRoot, uint32_t rootIndex)
+{
+  if(!localRoot)
+    return RaytracingRootConstantsByteSize(rt.globalRootSignature, rootIndex);
+
+  uint64_t ret = RaytracingRootConstantsByteSize(rt.globalRootSignature);
+
+  for(uint32_t table = 0; table < 4; table++)
+  {
+    const D3D12Pipe::RaytracingShaderTable *shaderTable = GetRaytracingShaderTable(rt, table);
+
+    if(shaderTable == NULL)
+      continue;
+
+    for(uint32_t record = 0; record < (uint32_t)shaderTable->records.size(); record++)
+    {
+      const D3D12Pipe::RaytracingShaderRecord &shaderRecord = shaderTable->records[record];
+
+      if(table == tableIndex && record == recordIndex)
+        return ret + RaytracingRootConstantsByteSize(shaderRecord.localRootSignature, rootIndex);
+
+      ret += RaytracingRootConstantsByteSize(shaderRecord.localRootSignature);
+    }
+  }
+
+  return ret;
+}
+
+static void AppendRaytracingRootConstants(bytebuf &inlineData,
+                                          const D3D12Pipe::RootSignature &rootSig)
+{
+  for(const D3D12Pipe::RootParam &param : rootSig.parameters)
+  {
+    if(!param.constants.empty())
+      inlineData.append((const byte *)param.constants.data(), param.constants.byteSize());
+  }
+}
+
+static bytebuf GetRaytracingRootConstantsData(const D3D12Pipe::RaytracingState &rt)
+{
+  bytebuf inlineData;
+
+  AppendRaytracingRootConstants(inlineData, rt.globalRootSignature);
+
+  for(uint32_t table = 0; table < 4; table++)
+  {
+    const D3D12Pipe::RaytracingShaderTable *shaderTable = GetRaytracingShaderTable(rt, table);
+
+    if(shaderTable == NULL)
+      continue;
+
+    for(const D3D12Pipe::RaytracingShaderRecord &record : shaderTable->records)
+      AppendRaytracingRootConstants(inlineData, record.localRootSignature);
+  }
+
+  return inlineData;
+}
+
 rdcarray<Descriptor> D3D12Replay::GetDescriptors(ResourceId descriptorStore,
                                                  const rdcarray<DescriptorRange> &ranges)
 {
@@ -3101,6 +3249,59 @@ rdcarray<Descriptor> D3D12Replay::GetDescriptors(ResourceId descriptorStore,
         else
         {
           FillRootDescriptor(d, rootEl);
+        }
+      }
+    }
+
+    return ret;
+  }
+
+  if(WrappedID3D12StateObject::IsAlloc(res))
+  {
+    if(m_D3D12PipelineState == NULL)
+      return ret;
+
+    const D3D12Pipe::RaytracingState &rt = m_D3D12PipelineState->raytracing;
+
+    size_t dst = 0;
+    for(const DescriptorRange &r : ranges)
+    {
+      uint32_t encodedRootIndex = r.offset;
+      const D3D12Pipe::RaytracingShaderRecord *record =
+          GetRaytracingShaderRecord(rt, r.shaderRecordTable, r.shaderRecordIndex);
+
+      for(uint32_t i = 0; i < r.count; i++, encodedRootIndex++, dst++)
+      {
+        const bool localRoot = (encodedRootIndex & RaytracingRootDescriptorLocalBit) != 0;
+        const bool staticSampler =
+            (encodedRootIndex & RaytracingRootDescriptorStaticSamplerBit) != 0;
+        const uint32_t rootIndex = encodedRootIndex & RaytracingRootDescriptorIndexMask;
+
+        if(staticSampler)
+          continue;
+
+        const D3D12Pipe::RootSignature *rootSig =
+            localRoot && record != NULL ? &record->localRootSignature : &rt.globalRootSignature;
+        if(rootSig == NULL || rootIndex >= rootSig->parameters.size())
+          continue;
+
+        const D3D12Pipe::RootParam &param = rootSig->parameters[rootIndex];
+
+        if(!param.constants.empty())
+        {
+          ret[dst].type = DescriptorType::ConstantBuffer;
+          ret[dst].flags = DescriptorFlags::InlineData;
+          ret[dst].resource = descriptorStore;
+          ret[dst].view = ResourceId();
+          ret[dst].byteOffset =
+              GetRaytracingRootConstantsByteOffset(rt, r.shaderRecordTable, r.shaderRecordIndex,
+                                                   localRoot, rootIndex);
+          ret[dst].byteSize = param.constants.byteSize();
+        }
+        else
+        {
+          ret[dst] = param.descriptor;
+          ret[dst].type = r.type;
         }
       }
     }
@@ -3203,6 +3404,43 @@ rdcarray<SamplerDescriptor> D3D12Replay::GetSamplerDescriptors(ResourceId descri
     return ret;
   }
 
+  if(WrappedID3D12StateObject::IsAlloc(res))
+  {
+    if(m_D3D12PipelineState == NULL)
+      return ret;
+
+    const D3D12Pipe::RaytracingState &rt = m_D3D12PipelineState->raytracing;
+
+    size_t dst = 0;
+    for(const DescriptorRange &r : ranges)
+    {
+      uint32_t encodedRootIndex = r.offset;
+      const D3D12Pipe::RaytracingShaderRecord *record =
+          GetRaytracingShaderRecord(rt, r.shaderRecordTable, r.shaderRecordIndex);
+
+      for(uint32_t i = 0; i < r.count; i++, encodedRootIndex++, dst++)
+      {
+        const bool localRoot = (encodedRootIndex & RaytracingRootDescriptorLocalBit) != 0;
+        const bool staticSampler =
+            (encodedRootIndex & RaytracingRootDescriptorStaticSamplerBit) != 0;
+        const uint32_t samplerIndex = encodedRootIndex & RaytracingRootDescriptorIndexMask;
+
+        if(!staticSampler)
+          continue;
+
+        const D3D12Pipe::RootSignature *rootSig =
+            localRoot && record != NULL ? &record->localRootSignature : &rt.globalRootSignature;
+        if(rootSig == NULL || samplerIndex >= rootSig->staticSamplers.size())
+          continue;
+
+        ret[dst] = rootSig->staticSamplers[samplerIndex].descriptor;
+        ret[dst].creationTimeConstant = true;
+      }
+    }
+
+    return ret;
+  }
+
   if(!WrappedID3D12DescriptorHeap::IsAlloc(res))
   {
     RDCERR("Invalid/unrecognised descriptor store %s", ToStr(descriptorStore).c_str());
@@ -3238,9 +3476,195 @@ rdcarray<SamplerDescriptor> D3D12Replay::GetSamplerDescriptors(ResourceId descri
   return ret;
 }
 
+static bool FindRaytracingRootDescriptorAccess(const D3D12Pipe::RootSignature &rootSig,
+                                               DescriptorCategory category, uint32_t space,
+                                               uint32_t bind, ResourceId stateObjectStore,
+                                               bool localRoot, DescriptorAccess &access)
+{
+  for(uint32_t rootIndex = 0; rootIndex < rootSig.parameters.size(); rootIndex++)
+  {
+    const D3D12Pipe::RootParam &param = rootSig.parameters[rootIndex];
+
+    if(category == DescriptorCategory::ConstantBlock && param.space == space &&
+       param.reg == bind && !param.constants.empty())
+    {
+      access.descriptorStore = stateObjectStore;
+      access.byteOffset = EncodeRaytracingRootDescriptorOffset(localRoot, false, rootIndex);
+      access.byteSize = 1;
+      return true;
+    }
+
+    if(param.space == space && param.reg == bind && param.descriptor.type != DescriptorType::Unknown &&
+       CategoryForDescriptorType(param.descriptor.type) == category)
+    {
+      access.descriptorStore = stateObjectStore;
+      access.byteOffset = EncodeRaytracingRootDescriptorOffset(localRoot, false, rootIndex);
+      access.byteSize = 1;
+      return true;
+    }
+
+    if(param.heap == ResourceId())
+      continue;
+
+    for(const D3D12Pipe::RootTableRange &range : param.tableRanges)
+    {
+      if(range.category != category || range.space != space || bind < range.baseRegister)
+        continue;
+
+      uint32_t arrayElement = bind - range.baseRegister;
+      if(range.count != ~0U && arrayElement >= range.count)
+        continue;
+
+      access.descriptorStore = param.heap;
+      access.byteOffset = param.heapByteOffset + range.tableByteOffset + arrayElement;
+      access.byteSize = 1;
+      return true;
+    }
+  }
+
+  return false;
+}
+
+static bool FindRaytracingStaticSamplerAccess(const D3D12Pipe::RootSignature &rootSig,
+                                              uint32_t space, uint32_t bind,
+                                              ResourceId stateObjectStore, bool localRoot,
+                                              DescriptorAccess &access)
+{
+  for(uint32_t samplerIndex = 0; samplerIndex < rootSig.staticSamplers.size(); samplerIndex++)
+  {
+    const D3D12Pipe::StaticSampler &sampler = rootSig.staticSamplers[samplerIndex];
+
+    if(sampler.space != space || sampler.reg != bind)
+      continue;
+
+    access.descriptorStore = stateObjectStore;
+    access.byteOffset = EncodeRaytracingRootDescriptorOffset(localRoot, true, samplerIndex);
+    access.byteSize = 1;
+    return true;
+  }
+
+  return false;
+}
+
+static bool FindRaytracingDescriptorAccess(const D3D12Pipe::RaytracingState &rt,
+                                           const D3D12Pipe::RaytracingShaderRecord &record,
+                                           DescriptorCategory category, uint32_t space,
+                                           uint32_t bind, ResourceId stateObjectStore,
+                                           DescriptorAccess &access)
+{
+  if(category == DescriptorCategory::Sampler)
+  {
+    if(FindRaytracingStaticSamplerAccess(record.localRootSignature, space, bind, stateObjectStore,
+                                         true, access))
+      return true;
+
+    if(FindRaytracingStaticSamplerAccess(rt.globalRootSignature, space, bind, stateObjectStore,
+                                         false, access))
+      return true;
+  }
+
+  if(FindRaytracingRootDescriptorAccess(record.localRootSignature, category, space, bind,
+                                        stateObjectStore, true, access))
+    return true;
+
+  return FindRaytracingRootDescriptorAccess(rt.globalRootSignature, category, space, bind,
+                                            stateObjectStore, false, access);
+}
+
+static void AddRaytracingDescriptorAccesses(rdcarray<DescriptorAccess> &ret,
+                                            const D3D12Pipe::RaytracingState &rt,
+                                            const D3D12Pipe::RaytracingShaderRecord &record,
+                                            ResourceId stateObjectStore, uint32_t tableIndex,
+                                            uint32_t recordIndex)
+{
+  const ShaderReflection *refl = record.reflection;
+  if(refl == NULL || record.stage == ShaderStage::Count)
+    return;
+
+  auto initAccess = [&](DescriptorAccess &access) {
+    access.stage = record.stage;
+    access.shaderRecordTable = tableIndex;
+    access.shaderRecordIndex = recordIndex;
+  };
+
+  RDCASSERT(refl->constantBlocks.size() < 0xffff, refl->constantBlocks.size());
+  for(size_t i = 0; i < refl->constantBlocks.size(); i++)
+  {
+    const ConstantBlock &bind = refl->constantBlocks[i];
+
+    // Match PSO static descriptor access handling. Arrayed descriptors are handled by bindless
+    // feedback instead of expanding the whole range here.
+    if(bind.bindArraySize > 1)
+      continue;
+
+    DescriptorAccess access;
+    initAccess(access);
+    access.type = DescriptorType::ConstantBuffer;
+    access.index = (uint16_t)i;
+
+    if(FindRaytracingDescriptorAccess(rt, record, DescriptorCategory::ConstantBlock,
+                                      bind.fixedBindSetOrSpace, bind.fixedBindNumber,
+                                      stateObjectStore, access))
+      ret.push_back(access);
+  }
+
+  RDCASSERT(refl->samplers.size() < 0xffff, refl->samplers.size());
+  for(size_t i = 0; i < refl->samplers.size(); i++)
+  {
+    const ShaderSampler &bind = refl->samplers[i];
+
+    // Match PSO static descriptor access handling. Arrayed descriptors are handled by bindless
+    // feedback instead of expanding the whole range here.
+    if(bind.bindArraySize > 1)
+      continue;
+
+    DescriptorAccess access;
+    initAccess(access);
+    access.type = DescriptorType::Sampler;
+    access.index = (uint16_t)i;
+
+    if(FindRaytracingDescriptorAccess(rt, record, DescriptorCategory::Sampler,
+                                      bind.fixedBindSetOrSpace, bind.fixedBindNumber,
+                                      stateObjectStore, access))
+      ret.push_back(access);
+  }
+
+  auto addShaderResources = [&](const rdcarray<ShaderResource> &resources,
+                                DescriptorCategory category) {
+    RDCASSERT(resources.size() < 0xffff, resources.size());
+
+    for(size_t i = 0; i < resources.size(); i++)
+    {
+      const ShaderResource &bind = resources[i];
+
+      // Match PSO static descriptor access handling. Arrayed descriptors are handled by bindless
+      // feedback instead of expanding the whole range here.
+      if(bind.bindArraySize > 1)
+        continue;
+
+      DescriptorAccess access;
+      initAccess(access);
+      access.type = bind.descriptorType;
+      access.index = (uint16_t)i;
+
+      if(FindRaytracingDescriptorAccess(rt, record, category, bind.fixedBindSetOrSpace,
+                                        bind.fixedBindNumber, stateObjectStore, access))
+        ret.push_back(access);
+    }
+  };
+
+  RDCASSERT(refl->readOnlyResources.size() < 0xffff, refl->readOnlyResources.size());
+  addShaderResources(refl->readOnlyResources, DescriptorCategory::ReadOnlyResource);
+
+  RDCASSERT(refl->readWriteResources.size() < 0xffff, refl->readWriteResources.size());
+  addShaderResources(refl->readWriteResources, DescriptorCategory::ReadWriteResource);
+}
+
 rdcarray<DescriptorAccess> D3D12Replay::GetDescriptorAccess(uint32_t eventId)
 {
   const D3D12RenderState &rs = m_pDevice->GetQueue()->GetCommandData()->m_RenderState;
+  const ActionDescription *action = m_pDevice->GetAction(eventId);
+  const bool rayDispatch = action != NULL && (action->flags & ActionFlags::DispatchRay);
 
   D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
 
@@ -3251,7 +3675,32 @@ rdcarray<DescriptorAccess> D3D12Replay::GetDescriptorAccess(uint32_t eventId)
 
   rdcarray<DescriptorAccess> ret;
 
-  if(pipe)
+  if(rayDispatch && rs.stateobj != ResourceId())
+  {
+    if(m_D3D12PipelineState)
+    {
+      const D3D12Pipe::RaytracingState &rt = m_D3D12PipelineState->raytracing;
+
+      for(uint32_t tableIndex = 0; tableIndex < 4; tableIndex++)
+      {
+        const D3D12Pipe::RaytracingShaderTable *table =
+            GetRaytracingShaderTable(rt, tableIndex);
+
+        if(table == NULL)
+          continue;
+
+        for(uint32_t recordIndex = 0; recordIndex < table->records.size(); recordIndex++)
+        {
+          AddRaytracingDescriptorAccesses(ret, rt, table->records[recordIndex], rs.stateobj,
+                                          tableIndex, recordIndex);
+        }
+      }
+
+      ret.removeIf(
+          [](const DescriptorAccess &access) { return access.descriptorStore == ResourceId(); });
+    }
+  }
+  else if(pipe)
   {
     pipe->ProcessDescriptorAccess();
 
@@ -3420,6 +3869,33 @@ rdcarray<DescriptorLogicalLocation> D3D12Replay::GetDescriptorLocations(
           l.category = DescriptorCategory::ReadWriteResource;
           l.logicalBindName = StringFormat::Fmt("Root UAV #", rootIndex);
         }
+      }
+    }
+
+    return ret;
+  }
+
+  if(WrappedID3D12StateObject::IsAlloc(res))
+  {
+    size_t dst = 0;
+    for(const DescriptorRange &r : ranges)
+    {
+      uint32_t encodedRootIndex = r.offset;
+
+      for(uint32_t i = 0; i < r.count; i++, encodedRootIndex++, dst++)
+      {
+        const bool localRoot = (encodedRootIndex & RaytracingRootDescriptorLocalBit) != 0;
+        const bool staticSampler =
+            (encodedRootIndex & RaytracingRootDescriptorStaticSamplerBit) != 0;
+        const uint32_t rootIndex = encodedRootIndex & RaytracingRootDescriptorIndexMask;
+
+        DescriptorLogicalLocation &l = ret[dst];
+        l.fixedBindNumber = ~0U - 2048 - 64 + rootIndex;
+        l.stageMask = ShaderStageMask::All;
+        l.category = staticSampler ? DescriptorCategory::Sampler : CategoryForDescriptorType(r.type);
+        l.logicalBindName = StringFormat::Fmt("%s %s #%u", localRoot ? "Local" : "Global",
+                                              staticSampler ? "Static Sampler" : "Root",
+                                              rootIndex);
       }
     }
 
@@ -4699,6 +5175,34 @@ void D3D12Replay::GetBufferData(ResourceId buff, uint64_t offset, uint64_t lengt
       RDCWARN(
           "Attempting to read off the end of current push constants (%llu %llu). Will be clamped "
           "(%llu)",
+          offset, length, inlineData.size());
+      length = RDCMIN(length, inlineData.size() - offset);
+    }
+
+    ret.resize((size_t)length);
+
+    memcpy(ret.data(), inlineData.data() + offset, ret.size());
+
+    return;
+  }
+  if(WrappedID3D12StateObject::IsAlloc(res))
+  {
+    if(m_D3D12PipelineState == NULL)
+      return;
+
+    bytebuf inlineData = GetRaytracingRootConstantsData(m_D3D12PipelineState->raytracing);
+
+    if(offset >= inlineData.size())
+      return;
+
+    if(length == 0 || length > inlineData.size())
+      length = inlineData.size() - offset;
+
+    if(offset + length > inlineData.size())
+    {
+      RDCWARN(
+          "Attempting to read off the end of current raytracing root constants (%llu %llu). Will "
+          "be clamped (%llu)",
           offset, length, inlineData.size());
       length = RDCMIN(length, inlineData.size() - offset);
     }

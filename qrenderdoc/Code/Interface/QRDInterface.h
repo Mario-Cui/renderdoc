@@ -2927,7 +2927,9 @@ variables in a constant buffer with their values.
 :return: The new :class:`BufferViewer` window opened, but not shown.
 :rtype: BufferViewer
 )");
-  virtual IBufferViewer *ViewConstantBuffer(ShaderStage stage, uint32_t slot, uint32_t idx) = 0;
+  virtual IBufferViewer *ViewConstantBuffer(
+      ShaderStage stage, uint32_t slot, uint32_t idx, uint32_t shaderRecordTable = ~0U,
+      uint32_t shaderRecordIndex = ~0U) = 0;
 
   DOCUMENT(R"(Show a new :class:`PixelHistoryView` window, showing the results from a pixel history
 operation.

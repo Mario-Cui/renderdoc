@@ -847,6 +847,8 @@ struct DescriptorRange
     offset = access.byteOffset;
     descriptorSize = access.byteSize;
     type = access.type;
+    shaderRecordTable = access.shaderRecordTable;
+    shaderRecordIndex = access.shaderRecordIndex;
   }
 
   DOCUMENT(R"(The offset in the descriptor storage where the descriptor range starts.
@@ -870,11 +872,25 @@ struct DescriptorRange
 )");
   DescriptorType type = DescriptorType::Unknown;
 
+  DOCUMENT(R"(For raytracing shader accesses, the shader binding table this range belongs to.
+
+:type: int
+)");
+  uint32_t shaderRecordTable = DescriptorAccess::NoShaderRecord;
+
+  DOCUMENT(R"(For raytracing shader accesses, the shader binding table record index this range
+belongs to.
+
+:type: int
+)");
+  uint32_t shaderRecordIndex = DescriptorAccess::NoShaderRecord;
+
   DOCUMENT("");
   bool operator==(const DescriptorRange &o) const
   {
     return offset == o.offset && descriptorSize == o.descriptorSize && count == o.count &&
-           type == o.type;
+           type == o.type && shaderRecordTable == o.shaderRecordTable &&
+           shaderRecordIndex == o.shaderRecordIndex;
   }
   bool operator<(const DescriptorRange &o) const
   {
@@ -886,6 +902,10 @@ struct DescriptorRange
       return count < o.count;
     if(!(type == o.type))
       return type < o.type;
+    if(!(shaderRecordTable == o.shaderRecordTable))
+      return shaderRecordTable < o.shaderRecordTable;
+    if(!(shaderRecordIndex == o.shaderRecordIndex))
+      return shaderRecordIndex < o.shaderRecordIndex;
     return false;
   }
 };

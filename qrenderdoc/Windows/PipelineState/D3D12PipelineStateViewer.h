@@ -114,15 +114,17 @@ private:
 
   void addResourceRow(const D3D12ViewTag &view, const ShaderResource *shaderInput, bool spacesUsed,
                       RDTreeWidget *resources);
+  void addRaytracingDescriptorRows(const ShaderReflection *refl,
+                                   const rdcarray<UsedDescriptor> &descriptors, bool spacesUsed);
 
   void clearShaderState(RDLabel *pipeline, RDLabel *shader, RDLabel *rootSig, RDTreeWidget *tex,
                         RDTreeWidget *samp, RDTreeWidget *cbuffer, RDTreeWidget *uavs);
   void setState();
   void clearState();
-  void setRaytracingRecordDetails(const D3D12Pipe::RaytracingShaderRecord *record);
-  void addRaytracingRootSignatureRows(const D3D12Pipe::RootSignature &rootSignature,
-                                      const QString &scope);
-  void addRaytracingShaderReflectionRows(const D3D12Pipe::RaytracingShaderRecord *record);
+  void setRaytracingRecordDetails(const D3D12Pipe::RaytracingShaderRecord *record,
+                                  uint32_t tableIndex, uint32_t recordIndex);
+  void addRaytracingShaderReflectionRows(const D3D12Pipe::RaytracingShaderRecord *record,
+                                         uint32_t tableIndex, uint32_t recordIndex);
 
   void setInactiveRow(RDTreeWidgetItem *node);
   void setEmptyRow(RDTreeWidgetItem *node);
@@ -150,8 +152,6 @@ private:
   void exportHTML(QXmlStreamWriter &xml, const D3D12Pipe::OM &om);
 
   QMap<QPair<ResourceId, uint32_t>, DescriptorLogicalLocation> m_Locations;
-  QMap<QPair<ResourceId, uint32_t>, Descriptor> m_RTDescriptors;
-  QMap<QPair<ResourceId, uint32_t>, SamplerDescriptor> m_RTSamplerDescriptors;
 
   // keep track of the VB nodes (we want to be able to highlight them easily on hover)
   QList<RDTreeWidgetItem *> m_VBNodes;

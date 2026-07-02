@@ -288,7 +288,9 @@ public:
   IBufferViewer *ViewTextureAsBuffer(ResourceId id, const Subresource &sub,
                                      const rdcstr &format = "") override;
 
-  IBufferViewer *ViewConstantBuffer(ShaderStage stage, uint32_t slot, uint32_t idx) override;
+  IBufferViewer *ViewConstantBuffer(
+      ShaderStage stage, uint32_t slot, uint32_t idx, uint32_t shaderRecordTable = ~0U,
+      uint32_t shaderRecordIndex = ~0U) override;
   IPixelHistoryView *ViewPixelHistory(ResourceId texID, uint32_t x, uint32_t y, uint32_t view,
                                       const TextureDisplay &display) override;
 

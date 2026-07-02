@@ -1063,8 +1063,10 @@ void DoSerialise(SerialiserType &ser, DescriptorRange &el)
   SERIALISE_MEMBER(descriptorSize);
   SERIALISE_MEMBER(count);
   SERIALISE_MEMBER(type);
+  SERIALISE_MEMBER(shaderRecordTable);
+  SERIALISE_MEMBER(shaderRecordIndex);
 
-  SIZE_CHECK(16);
+  SIZE_CHECK(24);
 }
 
 template <typename SerialiserType>
@@ -1131,12 +1133,14 @@ void DoSerialise(SerialiserType &ser, DescriptorAccess &el)
   SERIALISE_MEMBER(type);
   SERIALISE_MEMBER(index);
   SERIALISE_MEMBER(arrayElement);
+  SERIALISE_MEMBER(shaderRecordTable);
+  SERIALISE_MEMBER(shaderRecordIndex);
   SERIALISE_MEMBER(descriptorStore);
   SERIALISE_MEMBER(byteOffset);
   SERIALISE_MEMBER(byteSize);
   SERIALISE_MEMBER(staticallyUnused);
 
-  SIZE_CHECK(32);
+  SIZE_CHECK(40);
 }
 
 template <typename SerialiserType>

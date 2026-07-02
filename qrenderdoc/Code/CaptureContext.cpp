@@ -2690,15 +2690,18 @@ IBufferViewer *CaptureContext::ViewTextureAsBuffer(ResourceId id, const Subresou
   return viewer;
 }
 
-IBufferViewer *CaptureContext::ViewConstantBuffer(ShaderStage stage, uint32_t slot, uint32_t idx)
+IBufferViewer *CaptureContext::ViewConstantBuffer(ShaderStage stage, uint32_t slot, uint32_t idx,
+                                                  uint32_t shaderRecordTable,
+                                                  uint32_t shaderRecordIndex)
 {
-  BufferViewer *existing = BufferViewer::HasCBufferView(stage, slot, idx);
+  BufferViewer *existing =
+      BufferViewer::HasCBufferView(stage, slot, idx, shaderRecordTable, shaderRecordIndex);
   if(existing != NULL)
     return existing;
 
   BufferViewer *viewer = new BufferViewer(*this, false, m_MainWindow);
 
-  viewer->ViewCBuffer(stage, slot, idx);
+  viewer->ViewCBuffer(stage, slot, idx, shaderRecordTable, shaderRecordIndex);
 
   return viewer;
 }

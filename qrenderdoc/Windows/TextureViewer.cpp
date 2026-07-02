@@ -88,174 +88,6 @@ static inline uint32_t BaseCoordFromMip(uint32_t coord, const uint32_t mip, cons
   return uint32_t(dim * (coordf + 1e-6f));
 }
 
-struct D3D12RTTextureDescriptorQuery
-{
-  ResourceId heap;
-  uint32_t offset = 0;
-  DescriptorType type = DescriptorType::Unknown;
-  ShaderStage stage = ShaderStage::Count;
-  uint16_t index = 0;
-  uint32_t arrayElement = 0;
-  bool readWrite = false;
-};
-
-static bool IsD3D12RayDispatch(ICaptureContext &ctx)
-{
-  const ActionDescription *curAction = ctx.CurAction();
-  return ctx.CurPipelineState().IsCaptureD3D12() && ctx.CurD3D12PipelineState() != NULL &&
-         curAction != NULL && (curAction->flags & ActionFlags::DispatchRay);
-}
-
-static const D3D12Pipe::RaytracingShaderTable *GetD3D12RTShaderTable(
-    const D3D12Pipe::RaytracingState &rt, ShaderStage stage)
-{
-  if(stage == ShaderStage::RayGen)
-    return &rt.raygenTable;
-  if(stage == ShaderStage::Miss)
-    return &rt.missTable;
-  if(stage == ShaderStage::Callable)
-    return &rt.callableTable;
-  if(stage == ShaderStage::Intersection || stage == ShaderStage::AnyHit ||
-     stage == ShaderStage::ClosestHit)
-    return &rt.hitGroupTable;
-
-  return NULL;
-}
-
-static const ShaderReflection *GetD3D12RTReflection(ICaptureContext &ctx, ShaderStage stage)
-{
-  if(!IsD3D12RayDispatch(ctx))
-    return NULL;
-
-  const D3D12Pipe::RaytracingState &rt = ctx.CurD3D12PipelineState()->raytracing;
-  const D3D12Pipe::RaytracingShaderTable *table = GetD3D12RTShaderTable(rt, stage);
-  if(table == NULL)
-    return NULL;
-
-  for(const D3D12Pipe::RaytracingShaderRecord &record : table->records)
-    if(record.stage == stage && record.reflection != NULL)
-      return record.reflection;
-
-  return NULL;
-}
-
-static bool FindD3D12RTTableDescriptor(const D3D12Pipe::RootSignature &rootSignature,
-                                       DescriptorCategory category, uint32_t space, uint32_t reg,
-                                       ResourceId &heap, uint32_t &offset)
-{
-  for(const D3D12Pipe::RootParam &param : rootSignature.parameters)
-  {
-    if(param.heap == ResourceId())
-      continue;
-
-    for(const D3D12Pipe::RootTableRange &range : param.tableRanges)
-    {
-      if(range.category != category || range.space != space || reg < range.baseRegister)
-        continue;
-
-      uint32_t arrayElement = reg - range.baseRegister;
-      if(range.count != ~0U && arrayElement >= range.count)
-        continue;
-
-      heap = param.heap;
-      offset = param.heapByteOffset + range.tableByteOffset + arrayElement;
-      return true;
-    }
-  }
-
-  return false;
-}
-
-static bool FindD3D12RTTableDescriptor(const D3D12Pipe::RaytracingState &state,
-                                       const D3D12Pipe::RaytracingShaderRecord &record,
-                                       DescriptorCategory category, uint32_t space, uint32_t reg,
-                                       ResourceId &heap, uint32_t &offset)
-{
-  if(FindD3D12RTTableDescriptor(record.localRootSignature, category, space, reg, heap, offset))
-    return true;
-
-  return FindD3D12RTTableDescriptor(state.globalRootSignature, category, space, reg, heap, offset);
-}
-
-static void AddD3D12RTTextureQuery(rdcarray<D3D12RTTextureDescriptorQuery> &queries,
-                                   ResourceId heap, uint32_t offset, DescriptorType type,
-                                   ShaderStage stage, uint16_t index, uint32_t arrayElement,
-                                   bool readWrite)
-{
-  if(heap == ResourceId())
-    return;
-
-  for(const D3D12RTTextureDescriptorQuery &query : queries)
-  {
-    if(query.heap == heap && query.offset == offset && query.type == type &&
-       query.readWrite == readWrite)
-      return;
-  }
-
-  D3D12RTTextureDescriptorQuery query;
-  query.heap = heap;
-  query.offset = offset;
-  query.type = type;
-  query.stage = stage;
-  query.index = index;
-  query.arrayElement = arrayElement;
-  query.readWrite = readWrite;
-  queries.push_back(query);
-}
-
-static void AddD3D12RTShaderRecordTextureQueries(
-    rdcarray<D3D12RTTextureDescriptorQuery> &queries, const D3D12Pipe::RaytracingState &state,
-    const D3D12Pipe::RaytracingShaderRecord &record)
-{
-  if(record.reflection == NULL || record.stage == ShaderStage::Count)
-    return;
-
-  auto addResources = [&](const rdcarray<ShaderResource> &resources, bool readWrite) {
-    for(size_t bindIdx = 0; bindIdx < resources.size(); bindIdx++)
-    {
-      const ShaderResource &bind = resources[bindIdx];
-      DescriptorCategory category =
-          readWrite ? DescriptorCategory::ReadWriteResource : DescriptorCategory::ReadOnlyResource;
-
-      uint32_t arraySize = bind.bindArraySize == 0 ? 1 : bind.bindArraySize;
-
-      for(uint32_t arrayElement = 0; arrayElement < arraySize; arrayElement++)
-      {
-        uint32_t reg = bind.fixedBindNumber + arrayElement;
-
-        ResourceId heap;
-        uint32_t offset = 0;
-        if(FindD3D12RTTableDescriptor(state, record, category, bind.fixedBindSetOrSpace, reg, heap,
-                                      offset))
-        {
-          AddD3D12RTTextureQuery(queries, heap, offset, bind.descriptorType, record.stage,
-                                 (uint16_t)bindIdx, arrayElement, readWrite);
-        }
-      }
-    }
-  };
-
-  addResources(record.reflection->readOnlyResources, false);
-  addResources(record.reflection->readWriteResources, true);
-}
-
-static rdcarray<D3D12RTTextureDescriptorQuery> GetD3D12RTTextureDescriptorQueries(
-    const D3D12Pipe::RaytracingState &state)
-{
-  rdcarray<D3D12RTTextureDescriptorQuery> queries;
-
-  const D3D12Pipe::RaytracingShaderTable *table =
-      GetD3D12RTShaderTable(state, ShaderStage::RayGen);
-  if(table == NULL)
-    return queries;
-
-  for(const D3D12Pipe::RaytracingShaderRecord &record : table->records)
-    if(record.stage == ShaderStage::RayGen)
-      AddD3D12RTShaderRecordTextureQueries(queries, state, record);
-
-  return queries;
-}
-
 static Descriptor MakeDescriptor(ResourceId res, Subresource sub = Subresource())
 {
   Descriptor ret;
@@ -337,7 +169,8 @@ bool Following::operator==(const Following &o)
   return Type == o.Type && Stage == o.Stage && index == o.index && arrayEl == o.arrayEl;
 }
 
-void Following::GetActionContext(ICaptureContext &ctx, bool &copy, bool &clear, bool &compute)
+void Following::GetActionContext(ICaptureContext &ctx, bool &copy, bool &clear, bool &compute,
+                                 bool &rayDispatch)
 {
   const ActionDescription *curAction = ctx.CurAction();
   copy = curAction != NULL &&
@@ -345,6 +178,8 @@ void Following::GetActionContext(ICaptureContext &ctx, bool &copy, bool &clear, 
   clear = curAction != NULL && (curAction->flags & ActionFlags::Clear);
   compute = curAction != NULL && (curAction->flags & ActionFlags::Dispatch) &&
             ctx.CurPipelineState().GetShader(ShaderStage::Compute) != ResourceId();
+  rayDispatch = curAction != NULL && (curAction->flags & ActionFlags::DispatchRay) &&
+                ctx.CurPipelineState().IsCaptureD3D12() && ctx.CurD3D12PipelineState() != NULL;
 }
 
 int Following::GetHighestMip(ICaptureContext &ctx)
@@ -417,14 +252,14 @@ Descriptor Following::GetDescriptor(ICaptureContext &ctx, uint32_t arrayIdx)
 rdcarray<Descriptor> Following::GetOutputTargets(ICaptureContext &ctx)
 {
   const ActionDescription *curAction = ctx.CurAction();
-  bool copy = false, clear = false, compute = false;
-  GetActionContext(ctx, copy, clear, compute);
+  bool copy = false, clear = false, compute = false, rayDispatch = false;
+  GetActionContext(ctx, copy, clear, compute, rayDispatch);
 
   if(copy || clear)
   {
     return {MakeDescriptor(curAction->copyDestination, curAction->copyDestinationSubresource)};
   }
-  else if(compute || IsD3D12RayDispatch(ctx))
+  else if(compute || rayDispatch)
   {
     return {};
   }
@@ -450,10 +285,10 @@ rdcarray<Descriptor> Following::GetOutputTargets(ICaptureContext &ctx)
 
 Descriptor Following::GetDepthTarget(ICaptureContext &ctx)
 {
-  bool copy = false, clear = false, compute = false;
-  GetActionContext(ctx, copy, clear, compute);
+  bool copy = false, clear = false, compute = false, rayDispatch = false;
+  GetActionContext(ctx, copy, clear, compute, rayDispatch);
 
-  if(copy || clear || compute || IsD3D12RayDispatch(ctx))
+  if(copy || clear || compute || rayDispatch)
     return Descriptor();
   else
     return ctx.CurPipelineState().GetDepthTarget();
@@ -461,10 +296,10 @@ Descriptor Following::GetDepthTarget(ICaptureContext &ctx)
 
 Descriptor Following::GetDepthResolveTarget(ICaptureContext &ctx)
 {
-  bool copy = false, clear = false, compute = false;
-  GetActionContext(ctx, copy, clear, compute);
+  bool copy = false, clear = false, compute = false, rayDispatch = false;
+  GetActionContext(ctx, copy, clear, compute, rayDispatch);
 
-  if(copy || clear || compute || IsD3D12RayDispatch(ctx))
+  if(copy || clear || compute || rayDispatch)
     return Descriptor();
   else
     return ctx.CurPipelineState().GetDepthResolveTarget();
@@ -473,16 +308,16 @@ Descriptor Following::GetDepthResolveTarget(ICaptureContext &ctx)
 rdcarray<UsedDescriptor> Following::GetReadWriteResources(ICaptureContext &ctx, ShaderStage stage,
                                                           bool onlyUsed)
 {
-  bool copy = false, clear = false, compute = false;
-  GetActionContext(ctx, copy, clear, compute);
+  bool copy = false, clear = false, compute = false, rayDispatch = false;
+  GetActionContext(ctx, copy, clear, compute, rayDispatch);
 
   if(copy || clear)
   {
     return rdcarray<UsedDescriptor>();
   }
-  else if(IsD3D12RayDispatch(ctx))
+  else if(rayDispatch)
   {
-    return rdcarray<UsedDescriptor>();
+    return ctx.CurPipelineState().GetReadWriteResources(stage, onlyUsed);
   }
   else if(compute)
   {
@@ -502,8 +337,8 @@ rdcarray<UsedDescriptor> Following::GetReadOnlyResources(ICaptureContext &ctx, S
                                                          bool onlyUsed)
 {
   const ActionDescription *curAction = ctx.CurAction();
-  bool copy = false, clear = false, compute = false;
-  GetActionContext(ctx, copy, clear, compute);
+  bool copy = false, clear = false, compute = false, rayDispatch = false;
+  GetActionContext(ctx, copy, clear, compute, rayDispatch);
 
   if(copy || clear)
   {
@@ -516,9 +351,9 @@ rdcarray<UsedDescriptor> Following::GetReadOnlyResources(ICaptureContext &ctx, S
 
     return ret;
   }
-  else if(IsD3D12RayDispatch(ctx))
+  else if(rayDispatch)
   {
-    return rdcarray<UsedDescriptor>();
+    return ctx.CurPipelineState().GetReadOnlyResources(stage, onlyUsed);
   }
   else if(compute)
   {
@@ -536,13 +371,13 @@ rdcarray<UsedDescriptor> Following::GetReadOnlyResources(ICaptureContext &ctx, S
 
 const ShaderReflection *Following::GetReflection(ICaptureContext &ctx, ShaderStage stage)
 {
-  bool copy = false, clear = false, compute = false;
-  GetActionContext(ctx, copy, clear, compute);
+  bool copy = false, clear = false, compute = false, rayDispatch = false;
+  GetActionContext(ctx, copy, clear, compute, rayDispatch);
 
   if(copy || clear)
     return NULL;
-  else if(IsD3D12RayDispatch(ctx))
-    return GetD3D12RTReflection(ctx, stage);
+  else if(rayDispatch)
+    return ctx.CurPipelineState().GetShaderReflection(stage);
   else if(compute)
     return ctx.CurPipelineState().GetShaderReflection(ShaderStage::Compute);
   else
@@ -2736,9 +2571,7 @@ void TextureViewer::InitStageResourcePreviews(ShaderStage stage,
     }
     else
     {
-      QString stageName = IsD3D12RayDispatch(m_Ctx)
-                              ? ToQStr(stage)
-                              : QString(m_Ctx.CurPipelineState().Abbrev(stage));
+      QString stageName = QString(m_Ctx.CurPipelineState().Abbrev(stage));
       slotName = QFormatStr("%1 %2%3")
                      .arg(stageName)
                      .arg(rw ? lit("RW ") : lit(""))
@@ -3304,9 +3137,8 @@ void TextureViewer::OnCaptureClosed()
 
 void TextureViewer::OnEventChanged(uint32_t eventId)
 {
-  bool copy = false, clear = false, compute = false;
-  Following::GetActionContext(m_Ctx, copy, clear, compute);
-  bool rayDispatch = IsD3D12RayDispatch(m_Ctx);
+  bool copy = false, clear = false, compute = false, rayDispatch = false;
+  Following::GetActionContext(m_Ctx, copy, clear, compute, rayDispatch);
 
   ShaderStage stages[NumShaderStages] = {
       ShaderStage::Vertex, ShaderStage::Hull, ShaderStage::Domain, ShaderStage::Geometry,
@@ -3350,66 +3182,12 @@ void TextureViewer::OnEventChanged(uint32_t eventId)
     m_ReadWriteResources[i].clear();
   }
 
-  if(rayDispatch)
+  for(int i = 0; i < count; i++)
   {
-    rdcarray<D3D12RTTextureDescriptorQuery> queries =
-        GetD3D12RTTextureDescriptorQueries(m_Ctx.CurD3D12PipelineState()->raytracing);
+    ShaderStage stage = stages[i];
 
-    QMap<QPair<ResourceId, uint32_t>, Descriptor> descriptors;
-
-    m_Ctx.Replay().BlockInvoke([&queries, &descriptors](IReplayController *r) {
-      for(const D3D12RTTextureDescriptorQuery &query : queries)
-      {
-        if(query.heap == ResourceId())
-          continue;
-
-        DescriptorRange range;
-        range.offset = query.offset;
-        range.count = 1;
-        range.type = query.type;
-
-        rdcarray<DescriptorRange> queryRanges;
-        queryRanges.push_back(range);
-
-        rdcarray<Descriptor> fetchedDescriptors = r->GetDescriptors(query.heap, queryRanges);
-        if(!fetchedDescriptors.empty())
-          descriptors[qMakePair(query.heap, query.offset)] = fetchedDescriptors[0];
-      }
-    });
-
-    for(const D3D12RTTextureDescriptorQuery &query : queries)
-    {
-      if(query.heap == ResourceId())
-        continue;
-
-      auto it = descriptors.find(qMakePair(query.heap, query.offset));
-      if(it == descriptors.end())
-        continue;
-
-      UsedDescriptor used;
-      used.access.stage = query.stage;
-      used.access.type = query.type;
-      used.access.index = query.index;
-      used.access.arrayElement = query.arrayElement;
-      used.access.descriptorStore = query.heap;
-      used.access.byteOffset = query.offset;
-      used.descriptor = it.value();
-
-      if(query.readWrite)
-        m_ReadWriteResources[(uint32_t)query.stage].push_back(used);
-      else
-        m_ReadOnlyResources[(uint32_t)query.stage].push_back(used);
-    }
-  }
-  else
-  {
-    for(int i = 0; i < count; i++)
-    {
-      ShaderStage stage = stages[i];
-
-      m_ReadOnlyResources[(uint32_t)stage] = Following::GetReadOnlyResources(m_Ctx, stage, true);
-      m_ReadWriteResources[(uint32_t)stage] = Following::GetReadWriteResources(m_Ctx, stage, true);
-    }
+    m_ReadOnlyResources[(uint32_t)stage] = Following::GetReadOnlyResources(m_Ctx, stage, true);
+    m_ReadWriteResources[(uint32_t)stage] = Following::GetReadWriteResources(m_Ctx, stage, true);
   }
 
   UI_UpdateCachedTexture();

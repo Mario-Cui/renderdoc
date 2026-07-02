@@ -869,7 +869,8 @@ struct DescriptorAccess
   bool operator==(const DescriptorAccess &o) const
   {
     return stage == o.stage && type == o.type && index == o.index &&
-           arrayElement == o.arrayElement && descriptorStore == o.descriptorStore &&
+           arrayElement == o.arrayElement && shaderRecordTable == o.shaderRecordTable &&
+           shaderRecordIndex == o.shaderRecordIndex && descriptorStore == o.descriptorStore &&
            byteOffset == o.byteOffset && byteSize == o.byteSize;
   }
   bool operator<(const DescriptorAccess &o) const
@@ -882,6 +883,10 @@ struct DescriptorAccess
       return index < o.index;
     if(arrayElement != o.arrayElement)
       return arrayElement < o.arrayElement;
+    if(shaderRecordTable != o.shaderRecordTable)
+      return shaderRecordTable < o.shaderRecordTable;
+    if(shaderRecordIndex != o.shaderRecordIndex)
+      return shaderRecordIndex < o.shaderRecordIndex;
     if(descriptorStore != o.descriptorStore)
       return descriptorStore < o.descriptorStore;
     if(byteOffset != o.byteOffset)
@@ -919,6 +924,24 @@ descriptor storage without passing through a declared binding.
 :type: int
 )");
   uint32_t arrayElement = 0;
+
+  static const uint32_t NoShaderRecord = 0xFFFFFFFF;
+
+  DOCUMENT(R"(For raytracing shaders, the shader binding table this access belongs to.
+
+This is set to :data:`NoShaderRecord` for non-raytracing accesses.
+
+:type: int
+)");
+  uint32_t shaderRecordTable = NoShaderRecord;
+
+  DOCUMENT(R"(For raytracing shaders, the shader binding table record index this access belongs to.
+
+This is set to :data:`NoShaderRecord` for non-raytracing accesses.
+
+:type: int
+)");
+  uint32_t shaderRecordIndex = NoShaderRecord;
 
   DOCUMENT(R"(The backing storage of the descriptor.
 

@@ -254,7 +254,9 @@ This returns ``None`` if no shader is bound.
 :return: The reflection data for the given shader.
 :rtype: ShaderReflection
 )");
-  const ShaderReflection *GetShaderReflection(ShaderStage stage) const;
+  const ShaderReflection *GetShaderReflection(
+      ShaderStage stage, uint32_t shaderRecordTable = DescriptorAccess::NoShaderRecord,
+      uint32_t shaderRecordIndex = DescriptorAccess::NoShaderRecord) const;
 
   DOCUMENT(R"(Retrieves the the compute pipeline state object, if applicable.
 
@@ -278,7 +280,9 @@ For some APIs that don't distinguish by entry point, this may be empty.
 :return: The entry point name for the given shader.
 :rtype: str
 )");
-  rdcstr GetShaderEntryPoint(ShaderStage stage) const;
+  rdcstr GetShaderEntryPoint(ShaderStage stage,
+                             uint32_t shaderRecordTable = DescriptorAccess::NoShaderRecord,
+                             uint32_t shaderRecordIndex = DescriptorAccess::NoShaderRecord) const;
 
   DOCUMENT(R"(Retrieves the object ID of the shader bound at a shader stage.
 
@@ -286,7 +290,9 @@ For some APIs that don't distinguish by entry point, this may be empty.
 :return: The object ID for the given shader.
 :rtype: ResourceId
 )");
-  ResourceId GetShader(ShaderStage stage) const;
+  ResourceId GetShader(ShaderStage stage,
+                       uint32_t shaderRecordTable = DescriptorAccess::NoShaderRecord,
+                       uint32_t shaderRecordIndex = DescriptorAccess::NoShaderRecord) const;
 
   DOCUMENT(R"(Returns the current primitive topology.
 
@@ -366,7 +372,9 @@ convenience of access.
 :return: The constant buffer at the specified binding.
 :rtype: UsedDescriptor
 )");
-  UsedDescriptor GetConstantBlock(ShaderStage stage, uint32_t index, uint32_t arrayIdx) const;
+  UsedDescriptor GetConstantBlock(ShaderStage stage, uint32_t index, uint32_t arrayIdx,
+                                  uint32_t shaderRecordTable = DescriptorAccess::NoShaderRecord,
+                                  uint32_t shaderRecordIndex = DescriptorAccess::NoShaderRecord) const;
 
   DOCUMENT(R"(Retrieves the constant blocks used by a particular shader stage.
 

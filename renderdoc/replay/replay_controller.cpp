@@ -2342,7 +2342,8 @@ void ReplayController::FetchPipelineState(uint32_t eventId)
     // if the last range is contiguous with this access, append this access as a new range to query
     if(!ranges.empty() && ranges.back().descriptorSize == acc.byteSize &&
        ranges.back().offset + ranges.back().count * ranges.back().descriptorSize == acc.byteOffset &&
-       ranges.back().type == acc.type)
+       ranges.back().type == acc.type && ranges.back().shaderRecordTable == acc.shaderRecordTable &&
+       ranges.back().shaderRecordIndex == acc.shaderRecordIndex)
     {
       ranges.back().count++;
       continue;

@@ -897,9 +897,12 @@ struct CaptureContextInvoker : ObjectForwarder<ICaptureContext>
     return InvokeRetFunction<IBufferViewer *>(&ICaptureContext::ViewTextureAsBuffer, id, sub, format);
   }
 
-  virtual IBufferViewer *ViewConstantBuffer(ShaderStage stage, uint32_t slot, uint32_t idx) override
+  virtual IBufferViewer *ViewConstantBuffer(ShaderStage stage, uint32_t slot, uint32_t idx,
+                                            uint32_t shaderRecordTable,
+                                            uint32_t shaderRecordIndex) override
   {
-    return InvokeRetFunction<IBufferViewer *>(&ICaptureContext::ViewConstantBuffer, stage, slot, idx);
+    return InvokeRetFunction<IBufferViewer *>(&ICaptureContext::ViewConstantBuffer, stage, slot, idx,
+                                              shaderRecordTable, shaderRecordIndex);
   }
 
   virtual IPixelHistoryView *ViewPixelHistory(ResourceId texID, uint32_t x, uint32_t y,
